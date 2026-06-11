@@ -3,6 +3,21 @@ main = "src/worker/index.ts"
 compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Observability: simpan & query log Worker langsung di dashboard Cloudflare.
+# Cocok dengan structured JSON logging di src/worker/lib/log.ts (field
+# otomatis ter-index, bisa difilter by event/request_id/user_id).
+[observability]
+enabled = true
+# 0–1: persentase request yang di-log. Turunkan (mis. 0.1) bila trafik tinggi
+# dan ingin menekan biaya log.
+head_sampling_rate = 1
+
+[observability.logs]
+# Matikan baris "invocation log" otomatis (1 per request) karena kita sudah
+# punya log terstruktur sendiri. Mengurangi ~50% volume/biaya log. console.*
+# buatan kita tetap tercatat.
+invocation_logs = false
+
 # Static assets dari hasil build Vite
 [assets]
 directory = "./dist/client"
