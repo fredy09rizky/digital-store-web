@@ -1,0 +1,54 @@
+name = "digital-store"
+main = "src/worker/index.ts"
+compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Static assets dari hasil build Vite
+[assets]
+directory = "./dist/client"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[triggers]
+# Cron tiap menit untuk auto-expire order dan cleanup support chat
+crons = ["* * * * *"]
+
+# D1 database
+[[d1_databases]]
+binding = "DB"
+database_name = "digital_store"
+database_id = "881e1465-bceb-44c9-9bd7-9e0fa0f6923d"
+migrations_dir = "migrations"
+
+# KV untuk session, OTP, rate limit
+[[kv_namespaces]]
+binding = "KV"
+id = "a54c426be32145e5b600b320abdc5d1d"
+
+# R2 untuk gambar/upload
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "digital-store-assets"
+
+# Variabel publik (override di .dev.vars / dashboard)
+[vars]
+APP_NAME = "Pasar Premium"
+APP_ENV = "production"
+SESSION_TTL_SECONDS = "3600"
+ADMIN_OTP_TTL_SECONDS = "300"
+ADMIN_OTP_RESEND_COOLDOWN = "120"
+ADMIN_OTP_MAX_RESENDS = "3"
+PAYMENT_EXPIRY_SECONDS = "300"
+
+# Secrets WAJIB (set via `wrangler secret put`)
+# - SESSION_SECRET           : kunci HMAC sesi (string acak panjang min 32 karakter)
+# - ADMIN_USERNAME           : username admin awal
+# - ADMIN_PASSWORD_HASH      : password plain awal (akan di-hash saat seed pertama)
+# - PAKASIR_API_KEY          : API key proyek Pakasir
+# - PAKASIR_PROJECT          : slug proyek Pakasir
+# - TELEGRAM_BOT_TOKEN       : token Telegram bot pengirim OTP admin
+# - TELEGRAM_CHAT_ID         : chat id admin penerima OTP
+#
+# Catatan:
+# - Rekening transfer manual TIDAK lewat env. Diatur dari Admin Panel > Pengaturan Sistem.
+# - QRIS WAJIB lewat Pakasir; tidak ada mode mock/fallback.

@@ -1,0 +1,46 @@
+{
+  "name": "digital-store-web-cf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web store digital item premium fullstack di atas Cloudflare Workers + D1 + R2 + KV",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n WORKER,VITE -c blue,green \"npm:dev:worker\" \"npm:dev:client\"",
+    "predev:worker": "node scripts/ensure-dist-client.mjs",
+    "dev:worker": "wrangler dev",
+    "dev:client": "vite",
+    "build": "npm run build:client && npm run typecheck:worker",
+    "build:client": "vite build",
+    "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
+    "deploy": "npm run build:client && wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply digital_store --local",
+    "db:migrate:remote": "wrangler d1 migrations apply digital_store --remote",
+    "db:seed:local": "wrangler d1 execute digital_store --local --file=./seeds/seed.sql",
+    "db:seed:remote": "wrangler d1 execute digital_store --remote --file=./seeds/seed.sql",
+    "db:seed-products:local": "wrangler d1 execute digital_store --local --file=./seeds/seed-products.sql",
+    "db:seed-products:remote": "wrangler d1 execute digital_store --remote --file=./seeds/seed-products.sql",
+    "lint": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.client.json --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.23",
+    "lucide-react": "^1.17.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260607.1",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^10.0.3",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "wrangler": "^4.98.0"
+  }
+}

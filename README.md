@@ -1,0 +1,676 @@
+# Pasar Premium · Web Store Digital Item
+
+Web store fullstack untuk menjual akun premium dan item digital lainnya, dibangun di atas Cloudflare Workers (Hono), Cloudflare D1, R2, dan KV. Frontend memakai React + Vite + Tailwind. Semua dalam satu repo, satu deployment, satu Worker.
+
+> Backend menjadi sumber kebenaran. Stok dijaga atomik untuk mencegah double-sell. Pembayaran QRIS ditangani via Pakasir; transfer manual & saldo internal ditangani sendiri.
+
+## Daftar isi
+
+1. [Highlight](#highlight)
+2. [Stack & Arsitektur](#stack--arsitektur)
+3. [Struktur folder](#struktur-folder)
+4. [Setup pertama kali](#setup-pertama-kali)
+5. [Variabel lingkungan](#variabel-lingkungan)
+6. [Pengembangan lokal](#pengembangan-lokal)
+7. [Migrasi & seed database](#migrasi--seed-database)
+8. [Deployment ke Cloudflare](#deployment-ke-cloudflare)
+9. [Alur bisnis](#alur-bisnis)
+10. [Race condition & atomicity](#race-condition--atomicity)
+11. [Sistem stok & format upload](#sistem-stok--format-upload)
+12. [Pembayaran (Pakasir QRIS)](#pembayaran-pakasir-qris)
+13. [Voucher & harga spesial](#voucher--harga-spesial)
+14. [Saldo internal & refund](#saldo-internal--refund)
+15. [Review & rating](#review--rating)
+16. [Support chat per order](#support-chat-per-order)
+17. [Admin panel](#admin-panel)
+18. [Maintenance mode](#maintenance-mode)
+19. [Penghapusan user](#penghapusan-user)
+20. [Header keamanan & CSP](#header-keamanan--csp)
+21. [Logging](#logging)
+22. [Keamanan](#keamanan)
+23. [Logging & audit](#logging--audit)
+24. [Halaman yang tersedia](#halaman-yang-tersedia)
+25. [Troubleshooting](#troubleshooting)
+
+---
+
+## Highlight
+
+- ⚙️ Fullstack di satu Worker. React/Vite di-serve via Workers Assets, API Hono melalui `/api/*`.
+- 🔒 Sesi user & admin disimpan di KV dengan HMAC, otomatis invalid bila login dari device lain.
+- 🛡️ OTP admin dikirim via Telegram bot, dengan rate-limit, expiry 5 menit, dan max 3 resend.
+- 🧊 Reservasi stok atomik di D1 menggunakan UPDATE bersyarat plus double-check klausul status.
+- 🧾 Pembayaran via QRIS / transfer bank manual / saldo internal. Provider abstraction siap pasang Pakasir.
+- 🧠 Voucher fleksibel (segmen, persen/nominal, kuota total & per user, scope all/category/product), tidak tumpang dengan harga spesial.
+- 💸 Saldo internal (top up QRIS, refund admin, adjustment), semua mutasi tercatat.
+- 💬 Support chat per order, riwayat dihapus instan saat admin menutup sesi (dengan dialog konfirmasi), log dapat di-export CSV sebelum ditutup.
+- 🧹 Cron tiap menit: auto-expire order pending, cleanup chat lama (legacy), dan prune audit log sesuai retensi.
+- 📱 UI responsive & premium (design system **"Aurora Noir"**: aksen iris/violet, tipografi Space Grotesk + Inter + JetBrains Mono) dengan **dark mode** (toggle + ikut sistem) dan microinteraction halus. Detail di [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
+
+---
+
+## Stack & Arsitektur
+
+| Layer | Teknologi | Catatan |
+|------|-----------|---------|
+| Edge runtime | Cloudflare Workers | Single fetch + scheduled handler |
+| HTTP framework | Hono v4 | Rute API di `/api/*` |
+| Bahasa | TypeScript 6 | Strict mode untuk worker dan client |
+| Database | Cloudflare D1 (SQLite) | FK aktif, relasi normalisasi |
+| Object storage | Cloudflare R2 | Thumbnail produk, bukti transfer, foto review |
+| Key-Value | Cloudflare KV | Sesi, OTP, rate limit, ack admin |
+| Frontend | React 19 + React Router 7 | Lazy route, SPA fallback Workers Assets |
+| Build tool | Vite 8 | Output ke `dist/client` |
+| Styling | Tailwind CSS 4 | Tema CSS-first via `@theme` di `styles.css` (design system "Aurora Noir", dark mode) |
+| Validasi | Zod 4 | Semua input di-parse di backend |
+| CLI | Wrangler 4 | Compatibility date 2026-06-01 |
+
+Diagram singkat:
+
+```
+┌─────────────────────────────┐         ┌─────────────────────────┐
+│ React SPA (Vite static)     │         │ Cloudflare Workers      │
+│ - katalog/keranjang/checkout│  ───►   │ - Hono API (/api/*)     │
+│ - akun, payment, support    │         │ - Auth middleware       │
+└──────────────┬──────────────┘         │ - Cron auto-expire      │
+               │   GET /                │                         │
+               ▼                        │  ┌──────────┐  ┌──────┐ │
+        ASSETS binding                  │  │  D1 DB   │  │  KV  │ │
+        (SPA fallback)                  │  └──────────┘  └──────┘ │
+                                        │  ┌──────────┐           │
+                                        │  │   R2     │           │
+                                        │  └──────────┘           │
+                                        └─────────────────────────┘
+```
+
+---
+
+## Struktur folder
+
+```
+digital-store-web-cf/
+├─ migrations/                  # SQL skema D1
+│  ├─ 0001_initial.sql
+│  ├─ 0002_pakasir_fields.sql
+│  ├─ 0003_manual_bank_settings.sql
+│  ├─ 0004_perf_indexes.sql
+│  ├─ 0005_more_perf_indexes.sql
+│  └─ 0006_cleanup_and_retention.sql
+├─ seeds/                       # SQL seed kategori, settings, dan produk demo
+│  ├─ seed.sql
+│  └─ seed-products.sql
+├─ scripts/                     # Skrip util build/dev
+│  └─ ensure-dist-client.mjs    # Memastikan dist/client ada sebelum wrangler dev
+├─ docs/                        # Dokumentasi tambahan
+│  ├─ ARCHITECTURE.md
+│  ├─ DESIGN_SYSTEM.md          # Sistem UI/UX "Aurora Noir" (token, komponen, dark mode)
+│  └─ PAKASIR-INTEGRATION.md
+├─ src/
+│  ├─ shared/                   # Tipe & constant lintas client+worker
+│  │  ├─ constants.ts
+│  │  └─ types.ts
+│  ├─ client/                   # Frontend React
+│  │  ├─ index.html
+│  │  ├─ main.tsx
+│  │  ├─ App.tsx
+│  │  ├─ styles.css             # @theme tokens + @utility (design system)
+│  │  ├─ public/                # Aset statis (favicon.svg)
+│  │  ├─ components/            # AppShell, Button, ProductCard, Toast, Alert,
+│  │  │                         # ConfirmDialog, Empty, Loading, Pagination,
+│  │  │                         # StatusPill, ThemeToggle, Thumbnail
+│  │  ├─ lib/                   # api.ts, format.ts, hooks.ts, theme.ts,
+│  │  │                         # category-icons.tsx
+│  │  ├─ pages/                 # Halaman user
+│  │  ├─ pages/admin/           # Halaman admin (+ admin-session.ts, AdminConfirm.tsx)
+│  │  └─ state/                 # AppProviders.tsx, RouteGuards.tsx
+│  └─ worker/                   # Backend Hono
+│     ├─ index.ts               # Entry worker (fetch + scheduled)
+│     ├─ env.ts                 # Tipe binding & context
+│     ├─ middleware/            # auth, common, maintenance
+│     ├─ lib/                   # hash, session, rate-limit, audit, ...
+│     ├─ services/              # order, voucher, pricing, telegram, ...
+│     ├─ services/payment/      # Pakasir provider (QRIS only)
+│     └─ routes/                # Rute API per modul
+│        └─ admin/              # Rute admin
+├─ wrangler.toml
+├─ vite.config.ts
+├─ tsconfig.json
+├─ tsconfig.client.json
+├─ tsconfig.worker.json
+├─ package.json
+├─ package-lock.json
+├─ .gitignore
+├─ .dev.vars.example
+└─ README.md
+```
+
+> Folder yang dibuat otomatis (tidak di-commit): `node_modules/`, `dist/` (output
+> `vite build`), `.wrangler/` (state lokal Miniflare), `.vscode/`. File `.dev.vars`
+> (secret lokal) juga tidak di-commit — gunakan `.dev.vars.example` sebagai acuan.
+
+> Tailwind v4 menggunakan deklarasi tema CSS-first di `src/client/styles.css` lewat `@theme`. Tidak ada `tailwind.config.js` atau `postcss.config.js`.
+
+---
+
+## Setup pertama kali
+
+Prasyarat:
+
+- Node.js 20+
+- Akun Cloudflare (free tier cukup)
+- Wrangler login: `npx wrangler login`
+
+Install dependency:
+
+```bash
+npm install
+```
+
+Buat resource Cloudflare (sekali saja):
+
+```bash
+# D1 database
+npx wrangler d1 create digital_store
+# salin database_id ke wrangler.toml -> [[d1_databases]] database_id
+
+# KV namespace
+npx wrangler kv namespace create digital_store_kv
+# salin id ke wrangler.toml -> [[kv_namespaces]] id
+
+# R2 bucket
+npx wrangler r2 bucket create digital-store-assets
+```
+
+Buat file `.dev.vars` (untuk lokal) berisi minimal — atau salin saja dari `.dev.vars.example`:
+
+```env
+SESSION_SECRET=ganti-dengan-string-acak-min-32-karakter
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH=ganti-dengan-password-awal-yang-kuat   # password plain saat seed pertama
+TELEGRAM_BOT_TOKEN=                                         # opsional
+TELEGRAM_CHAT_ID=                                           # opsional
+PAKASIR_API_KEY=                                            # opsional saat dev (wajib utk QRIS)
+PAKASIR_PROJECT=                                            # opsional saat dev (wajib utk QRIS)
+```
+
+> `ADMIN_PASSWORD_HASH` di-treat sebagai password plain saat tabel `admins` masih kosong. Sistem akan auto-hash dan menyimpannya ke DB pada login admin pertama. Setelah itu, ubah password lewat aksi admin atau langsung di DB. Variabel ini tidak dipakai lagi setelah seed admin terbentuk. Jangan biarkan nilai default mudah ditebak meski hanya di lingkungan dev.
+
+Apply migrasi & seed lokal:
+
+```bash
+npm run db:migrate:local
+npm run db:seed:local
+```
+
+---
+
+## Variabel lingkungan
+
+| Variabel | Lokasi | Deskripsi |
+|---------|--------|-----------|
+| `APP_NAME` | `vars` | Nama tampilan aplikasi. |
+| `APP_ENV` | `vars` | `development` atau `production`. |
+| `SESSION_TTL_SECONDS` | `vars` | TTL sesi user/admin (default 3600). |
+| `ADMIN_OTP_TTL_SECONDS` | `vars` | TTL OTP admin (default 300). |
+| `ADMIN_OTP_RESEND_COOLDOWN` | `vars` | Cooldown resend OTP (detik). |
+| `ADMIN_OTP_MAX_RESENDS` | `vars` | Maksimal resend per ticket. |
+| `PAYMENT_EXPIRY_SECONDS` | `vars` | Waktu kedaluwarsa order pending (detik). |
+| `SESSION_SECRET` | secret | Kunci HMAC sesi. WAJIB diisi (>= 32 karakter acak). |
+| `ADMIN_USERNAME` | secret | Username admin awal (dipakai sekali saat seed). |
+| `ADMIN_PASSWORD_HASH` | secret | Password plain pertama (otomatis di-hash saat seed admin). |
+| `TELEGRAM_BOT_TOKEN` | secret | Token bot pengirim OTP admin. Opsional saat dev. |
+| `TELEGRAM_CHAT_ID` | secret | Chat ID admin penerima OTP. Opsional saat dev. |
+| `PAKASIR_API_KEY` | secret | API key proyek Pakasir. Wajib untuk QRIS. |
+| `PAKASIR_PROJECT` | secret | Slug proyek Pakasir. Wajib untuk QRIS. |
+
+> Info rekening transfer manual TIDAK lewat env. Diatur dari Admin Panel > Pengaturan Sistem.
+
+Set secret di Cloudflare untuk production:
+
+```bash
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put ADMIN_USERNAME
+npx wrangler secret put ADMIN_PASSWORD_HASH
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+# opsional
+npx wrangler secret put PAKASIR_API_KEY
+npx wrangler secret put PAKASIR_PROJECT
+```
+
+---
+
+## Pengembangan lokal
+
+Jalankan kedua proses (Vite dev server + Wrangler dev):
+
+```bash
+npm run dev
+```
+
+Akses:
+
+- Worker API + halaman build: http://127.0.0.1:8787
+- Vite dev (HMR client): http://127.0.0.1:5173 (proxy `/api` ke worker)
+
+Saat development tanpa `TELEGRAM_BOT_TOKEN`, kode OTP admin di-log ke konsol Wrangler.
+
+---
+
+## Migrasi & seed database
+
+```bash
+# lokal
+npm run db:migrate:local
+npm run db:seed:local
+
+# (opsional) seed katalog produk demo
+npm run db:seed-products:local
+
+# remote (Cloudflare)
+npm run db:migrate:remote
+npm run db:seed:remote
+npm run db:seed-products:remote
+```
+
+Migrasi yang tersedia:
+
+- `0001_initial.sql` — skema utama: users, admins, categories, products, product_images, product_price_tiers, product_inventory_items, carts, cart_items, orders, order_items, payments, payment_attempts, wallet_transactions, vouchers, voucher_redemptions, reviews, review_images, support_chats, support_messages, audit_logs, app_settings.
+- `0002_pakasir_fields.sql` — kolom `display_amount_cents`, `fee_cents`, `expires_at_provider` di `payments` untuk integrasi Pakasir.
+- `0003_manual_bank_settings.sql` — default settings transfer bank manual.
+- `0004_perf_indexes.sql` — index pendukung performa: FIFO reservasi stok dan agregasi wallet_transactions di dashboard.
+- `0005_more_perf_indexes.sql` — index tambahan: audit_logs ORDER BY created_at, refund cleanup, dan partial index cleanup support chat.
+- `0006_cleanup_and_retention.sql` — drop kolom debug `payments.raw_response` yang tidak terpakai, dan default `audit_log_retention_days = 365`.
+- `0007_unique_price_tier.sql` — ganti index `product_price_tiers(product_id, min_qty)` menjadi UNIQUE agar tidak ada dua tier grosir dengan min_qty sama per produk (integritas di level DB).
+- `0008_drop_product_badges.sql` — hapus kolom `products.badges` (label promo manual yang tidak pernah dirender; label visual −X%/READY/LARIS dihitung otomatis dari data).
+- `0009_max_wallet_balance.sql` — default setting `max_wallet_balance_cents` (batas saldo maksimal user, default Rp1.000.000; `0` = tanpa batas).
+
+---
+
+## Deployment ke Cloudflare
+
+```bash
+npm run build       # build client + typecheck worker
+npm run deploy      # wrangler deploy
+```
+
+Catatan deployment:
+
+1. Pastikan `wrangler.toml` sudah berisi `database_id` D1 dan `id` KV yang asli.
+2. Cron `* * * * *` akan men-trigger handler `scheduled` setiap menit untuk auto-expire dan cleanup.
+3. Static asset di-bundle dari `dist/client` lewat binding `ASSETS`. Routing SPA otomatis (`single-page-application`).
+4. Untuk versi wrangler lama, `npm i -D wrangler@latest` jika menemui issue dengan binding `[assets]`.
+
+---
+
+## Alur bisnis
+
+### 1. Browsing → Detail → Keranjang
+
+- Beranda menampilkan produk terbaru (default), populer, promo, ready.
+- Search bar di-submit dengan tombol kirim ke `/katalog?q=...`.
+- Filter: kategori, range harga, ready stock, sort (terbaru, populer, terlaris, termurah, termahal).
+- Detail produk menampilkan harga, label promo, stok, durasi, garansi, harga grosir, review approved + foto.
+
+### 2. Checkout
+
+- Wajib login. Backend memvalidasi ulang harga, stok, dan voucher saat order dibuat.
+- Sistem membuat order shell, lalu mereservasi stok atomik per produk. Jika gagal, order dihapus dan user diberi alasan jelas.
+- Stok masuk status `reserved` dan tetap terkunci hingga pembayaran sukses atau order expired.
+
+### 3. Pembayaran
+
+- QRIS, transfer manual (upload bukti), atau saldo.
+- Halaman pembayaran:
+  - Countdown 5 menit (`PAYMENT_EXPIRY_SECONDS`).
+- Tombol cek manual cooldown 10 detik (UI) + 4 detik server-side, supaya auto-poll 5s tidak ter-throttle.
+  - Auto-poll adaptif 30s → 10s → 5s saat mendekati expired.
+  - Tombol manual otomatis disabled saat <=15 detik tersisa, polling tetap berjalan.
+  - Saat expired, tombol bayar dinonaktifkan, user diarahkan untuk membuat order baru.
+- Saat status sukses, user diarahkan ke `/sukses/<code>` dan dapat unduh invoice.
+
+### 4. Pengiriman akun
+
+- Begitu order paid, reservasi di `product_inventory_items` di-commit ke status `sold`.
+- Email/password akun langsung tampil di halaman sukses dan detail pesanan (akun saya). Invoice sengaja **tidak** memuat kredensial demi keamanan & menjaga ukuran PDF.
+- Cron auto-expire akan melepas reservasi pada order yang tidak dibayar.
+
+### 5. Setelah pembelian
+
+- Akun saya: profil, saldo, mutasi, daftar order, detail order, invoice, chat support, pengajuan refund, review.
+- Refund: user mengajukan via tombol di order detail; backend membuka chat support dan mengirim pesan otomatis. Admin dapat menyetujui yang masuk ke saldo, atau mengirim akun pengganti via chat.
+- Review: hanya pembeli yang berhak. Maksimal 2 foto, 2MB per foto, status pending menunggu moderasi admin.
+
+---
+
+## Race condition & atomicity
+
+Reservasi stok dilakukan via dua langkah atomik di `services/inventory-reserve.ts`:
+
+```sql
+UPDATE product_inventory_items
+   SET status='reserved', reserved_for_order_id=?, reserved_at=?, updated_at=?
+ WHERE id IN (
+   SELECT id FROM product_inventory_items
+    WHERE product_id=? AND status='available'
+    ORDER BY created_at, id
+    LIMIT ?
+ )
+ AND status='available';
+```
+
+- Klausul `AND status='available'` setelah subselect berfungsi sebagai double-check terhadap baris yang sempat berubah pasca subselect.
+- Setelah UPDATE, kita menghitung jumlah baris yang **benar-benar** terikat ke order ini.
+- Jika kurang dari yang diminta, semua reservasi parsial untuk order itu dilepas (rollback) dan order dibatalkan.
+- D1 menjalankan tiap statement sebagai unit atomik, sehingga dua request paralel akan diserialisasi pada level baris.
+
+Perlindungan tambahan:
+
+- `markOrderPaid` memakai `UPDATE ... WHERE status='pending_payment'` sebagai titik serialisasi.
+- Pembayaran via saldo memotong saldo dengan `WHERE balance_cents >= amount` sehingga bebas dari over-debit.
+- Voucher: insert `voucher_redemptions` memakai `INSERT OR IGNORE` plus increment `used_count` setelahnya, idempoten saat retry.
+
+Klik ganda dan refresh tidak akan melahirkan order ganda karena order baru menyertakan reservasi stok atomik dan pembayaran adalah operasi idempotent (sudah `paid` → no-op).
+
+---
+
+## Sistem stok & format upload
+
+Stok per produk disimpan per item nyata di `product_inventory_items`. Admin menambah stok via halaman Stok Produk:
+
+- Paste teks atau import file `.txt`.
+- Format: satu baris satu item, pemisah `|`.
+- Field minimal: `email|password`. Tambahan opsional: `email|password|note|expired|extras...`.
+- Whitespace di-trim. Baris kosong dan baris diawali `#` diabaikan.
+- Parser fleksibel terhadap field tambahan (extras digabung ulang dengan `|`).
+
+Contoh:
+
+```
+# komentar
+user1@mail.com|password123|2FA off|2026-12-31
+user2@mail.com|S3cret|extra info
+example.com:rendahbanget|catatan
+```
+
+Aturan:
+
+- Stok tidak bisa hanya berupa angka; admin harus mengupload data nyata.
+- Stok aktif = jumlah baris dengan status `available`. `reserved` dan `sold` tidak ditampilkan ke katalog.
+- Saat ada reservasi aktif, edit produk dikunci (`locked`). Hapus reservasi lewat order expired/cancel sebelum mengubah produk.
+
+---
+
+## Pembayaran (Pakasir QRIS)
+
+Sumber: `src/worker/services/payment/`.
+
+- `types.ts` mendefinisikan kontrak `PaymentProvider`.
+- `pakasir-provider.ts` implementasi penuh client Pakasir QRIS.
+- `index.ts -> pakasirProvider(env)` melempar error jika `PAKASIR_API_KEY` atau `PAKASIR_PROJECT` belum di-set; tidak ada fallback mock.
+
+Untuk mengaktifkan QRIS:
+
+1. Set secret `PAKASIR_API_KEY` & `PAKASIR_PROJECT` lewat `wrangler secret put`.
+2. Selesai. Endpoint `/api/checkout` dengan `paymentMethod: "qris"` akan otomatis memanggil Pakasir.
+
+Detail integrasi (endpoint, webhook, sandbox testing) ada di [`docs/PAKASIR-INTEGRATION.md`](docs/PAKASIR-INTEGRATION.md).
+
+Polling status (UI):
+
+- Tombol manual: 1 hit / 4 detik (rate-limit backend) plus cooldown 10 detik di UI agar auto-poll 5s tidak pernah ter-throttle.
+- Auto-poll: 30s/10s/5s adaptif menurut sisa waktu.
+- Backend mencatat tiap pengecekan ke `payment_attempts` untuk audit.
+
+---
+
+## Voucher & harga spesial
+
+Voucher disimpan di tabel `vouchers`. Aturan dievaluasi di `services/voucher.ts`:
+
+- `discount_type`: `percent` atau `amount`. Diskon `percent` dibatasi maksimal 100%.
+- `scope_type`: `all`, `category`, atau `product`. Untuk `category`/`product`, `scope_ref_id` wajib diisi.
+- Periode wajib valid: `active_until` harus setelah `active_from`.
+- `total_quota`, `per_user_quota` divalidasi atomik via `voucher_redemptions` UNIQUE per `(voucher_id, order_id)`.
+- Tidak menumpuk dengan harga spesial: jika item kena sale price atau tier yang lebih murah dari harga normal, item tersebut **tidak** ikut dihitung untuk eligible subtotal voucher.
+- Hanya 1 voucher per order.
+
+> Validasi di atas dijaga di backend (`routes/admin/vouchers.ts`) dan dicerminkan di form admin (tombol simpan nonaktif bila tidak valid).
+
+Harga spesial / tier:
+
+- Disimpan di `product_price_tiers` per produk.
+- `effectiveUnitPrice(qty)` di backend memilih tier `min_qty <= qty` terbesar.
+- Jika tier > base price, base price menang (safety guard).
+- Saat input via admin: harga promo (`sale_price`) wajib lebih kecil dari harga normal, `min_qty` antar tier tidak boleh duplikat, dan harga tier tidak boleh lebih besar dari harga normal. `min_qty` unik per produk juga dijaga di DB lewat UNIQUE index (migrasi `0007`).
+
+---
+
+## Saldo internal & refund
+
+- Saldo di-store di `users.balance_cents` plus tabel append-only `wallet_transactions` untuk audit trail.
+- Top-up: user pilih nominal, sistem buat order khusus (`notes='Top up saldo'`) dan provider QRIS yang sama. Setelah sukses, kredit otomatis masuk.
+- Refund:
+  - User mengajukan refund via order detail → otomatis membuka chat support dan mengirim pesan otomatis.
+  - Admin di order detail bisa klik tombol Refund (dengan konfirmasi password admin) → status order ke `refunded` dan saldo user dikredit.
+  - Alternatif: admin kirim akun pengganti lewat chat tanpa refund.
+
+Aturan saldo:
+
+- Tidak ada withdraw keluar.
+- Mutasi tercatat lengkap dengan `balance_after_cents`.
+- Pemotongan saldo memakai `UPDATE ... WHERE balance_cents >= amount` agar aman race.
+- Batas saldo maksimal (`max_wallet_balance_cents`, default Rp1.000.000, `0` = tanpa batas) membatasi top up: maksimal top up sekali = batas − (saldo sekarang + top up yang masih pending). Refund & penyesuaian admin tidak dibatasi nilai ini. Diatur dari Admin Panel > Pengaturan Sistem.
+
+---
+
+## Review & rating
+
+- Hanya pembeli sukses pada order tertentu yang boleh memberi review (validasi via `orders` + `order_items` join).
+- Maks 2 foto, 2MB per foto. Upload ke R2.
+- Default status `pending`. Hanya `approved` yang ikut menghitung agregat rating produk.
+- Saat moderasi keluar/masuk `approved`, agregat (`rating_sum`, `rating_count`) di-update otomatis.
+- Admin bisa Approve / Reject / Spam / Hapus.
+
+---
+
+## Support chat per order
+
+- Satu chat per order, otomatis dibuat saat order paid atau saat user mengajukan refund.
+- Saat chat ditutup admin, **seluruh riwayat pesan langsung dihapus**. UI menyisakan satu pesan sistem yang menjelaskan bahwa sesi sudah ditutup dan riwayat dibersihkan, supaya user tidak bingung kenapa kotak chat tampak kosong.
+- Admin diminta konfirmasi via dialog sebelum tutup chat untuk mencegah ketidaksengajaan.
+- Admin bisa download log chat sebagai CSV **sebelum** menutup chat. Setelah tutup, isi pesan tidak bisa dipulihkan.
+- User tidak bisa kirim chat lagi pada order yang ditutup; harus ada order baru.
+- Cron tetap menyapu data lama yang masih punya `cleanup_at` (chat yang ditutup sebelum perubahan ini), supaya tidak ada riwayat tertinggal.
+
+---
+
+## Admin panel
+
+Login admin:
+
+1. POST `/api/admin/auth/start-login` dengan username+password.
+2. Backend menjawab `ticket`, lalu mengirim OTP 6-digit ke Telegram bot. Saat dev tanpa Telegram, OTP terlihat di console Wrangler.
+3. POST `/api/admin/auth/verify-otp` dengan ticket + code → cookie sesi admin di-set.
+
+Aksi sensitif (hapus user, reset password user, hapus order, refund, ubah saldo) memerlukan **konfirmasi password admin** terlebih dulu via `/api/admin/auth/confirm-password`. Endpoint mengembalikan `ack` token (TTL 5 menit) yang harus disertakan di body aksi sensitif. Token sekali pakai.
+
+Fitur admin:
+
+- Dashboard: omzet hari ini, order paid/pending/expired, user aktif, stok aktif, review menunggu, saldo masuk, refund hari ini, voucher aktif, chat butuh tindak lanjut, best seller hari ini.
+- Produk: tambah/edit/hapus, kategori, harga, harga promo, durasi, harga grosir bertingkat, gambar (thumbnail + galeri maks 5, masing-masing ≤ 2 MB), status. Edit dikunci saat ada reservasi aktif. Tier harga & galeri ikut termuat saat edit sehingga tidak hilang saat disimpan ulang.
+- Stok: paste/import TXT, lihat per item, tandai invalid.
+- Order: filter status, **buka detail order** (item, pembayaran, bukti transfer manual, akun terkirim), tandai paid manual, refund, hapus, bersihkan order >30 hari, export CSV.
+- User: filter, nonaktifkan, aktifkan, hapus permanen / soft delete (lihat [Penghapusan user](#penghapusan-user)), reset password, sesuaikan saldo (dengan ack password admin).
+- Voucher: CRUD penuh dengan kalender aktif.
+- Review: moderasi approve/reject/spam/hapus.
+- Support: list chat, balas, tutup, unduh log CSV.
+- Maintenance: toggle on/off, edit pesan banner, biaya layanan, batas saldo maksimal user, dan retensi audit log (hari).
+- Audit log: filter by action.
+- Laporan: download `/api/admin/dashboard/reports/transactions.csv`.
+
+---
+
+## Maintenance mode
+
+- Toggle dari halaman `/admin/maintenance`.
+- Saat aktif:
+  - Banner kuning di seluruh halaman.
+  - Endpoint `/api/checkout/*` mengembalikan 503 dengan kode `maintenance`.
+  - Katalog tetap terbuka.
+  - Admin tetap bisa login dan mengelola data.
+- Pesan banner dapat diatur dari halaman maintenance.
+
+---
+
+## Penghapusan user
+
+Tombol "Hapus" di halaman admin user memakai pendekatan **hybrid**: hard delete jika user belum pernah transaksi, soft delete (anonimisasi) jika sudah pernah. Tujuannya menjaga integritas riwayat order untuk audit dan laporan, tanpa menyimpan PII user yang sudah tidak aktif.
+
+Aturan:
+
+1. Saldo user harus 0 sebelum dihapus. Backend tolak dengan kode `balance_not_zero` dan menyebut nominal saldo tersisa. Admin harus refund / debit saldo (lewat menu Saldo) sampai 0 dulu.
+2. Cek apakah user punya order:
+   - **Tidak ada order** → `DELETE FROM users` (hard delete). Cascade FK akan ikut bersihkan cart, wallet_transactions, reviews, dan support_chats.
+   - **Ada order minimal satu** → soft delete: `status='deleted'`, `username` & `email` di-anonimkan ke `deleted_<id>` & `deleted_<id>@local`, `display_name=NULL`, `password_hash=''` (login tidak mungkin), `session_version` dinaikkan agar sesi aktif invalid. Riwayat order tetap utuh.
+3. UI dialog konfirmasi otomatis menjelaskan mode mana yang akan dijalankan ("hapus permanen" atau "anonimkan & hapus") sebelum admin klik konfirmasi.
+4. Audit log mencatat dua action berbeda: `admin.user.delete.hard` dan `admin.user.delete.soft`.
+
+Daftar user di admin UI menyembunyikan user `deleted` secara default. Filter `Dihapus` tersedia kalau perlu melihatnya untuk audit.
+
+---
+
+## Header keamanan & CSP
+
+Semua response dari Worker mendapat header keamanan dasar:
+
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `X-Frame-Options: DENY`
+- `X-Request-Id` (UUID per request, untuk tracing)
+
+Khusus untuk response HTML (halaman SPA), backend juga mengirim `Content-Security-Policy`:
+
+```
+default-src 'self';
+script-src 'self';
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+font-src 'self' https://fonts.gstatic.com data:;
+img-src 'self' data: blob:;
+connect-src 'self';
+frame-ancestors 'none';
+base-uri 'self';
+form-action 'self';
+object-src 'none';
+```
+
+Catatan:
+
+- `style-src 'unsafe-inline'` dibutuhkan oleh Tailwind v4 yang menyuntikkan style atribut runtime di sebagian komponen.
+- QR pembayaran dirender sepenuhnya di sisi klien lewat library `qrcode` (canvas → data URL). Tidak ada lagi panggilan ke service QR pihak ketiga.
+- CSP tidak diset pada response API (`/api/*`) atau static R2; hanya pada HTML.
+
+---
+
+## Logging
+
+Helper `loggerFor(c)` dan `log` global di `src/worker/lib/log.ts` menulis log JSON terstruktur ke `console.*`. Field standar:
+
+- `ts`, `level`, `msg`
+- `request_id`, `user_id`, `admin_id`, `ip`, `path`, `method` (saat dipanggil dari handler)
+- `event` (kunci kategori, mis. `webhook.pakasir.double_check_failed`)
+- `err_name`, `err_message`, `err_stack` (stack di-trim 6 baris)
+
+Log otomatis terlihat di `wrangler tail` dan bisa di-Logpush ke storage. Aturan: jangan log nilai sensitif. Field metadata cukup berisi ID atau counter, bukan password / token / payload pembayaran.
+
+---
+
+## Keamanan
+
+- Validasi semua input dengan Zod (backend), tipe ketat di TS. Field teks utama (nama/deskripsi produk & kategori) menolak emoji; pesan error validasi dikembalikan spesifik per masalah.
+- Backend selalu menghitung ulang harga, diskon, dan stok. Apapun dari client diabaikan.
+- Sesi disimpan di KV. Saat user/admin login dari device lain, `session_version` naik dan sesi lama otomatis invalid.
+- Frontend memantau sesi: setiap respons `401` sesi dan pengecekan berkala (tiap 3 menit) memunculkan popup "sesi berakhir" lalu mengarahkan user/admin ke halaman login, sehingga tidak ada aksi yang gagal diam-diam.
+- Cookie sesi `HttpOnly`, `Secure` (saat `APP_ENV=production`), `SameSite=Lax`.
+- Rate-limit di KV: login user, login admin, OTP, register, top-up, upload, support send, dan konfirmasi password admin.
+- Konfirmasi password admin diperlukan untuk aksi sensitif (token sekali pakai TTL 5 menit).
+- Upload R2 di-batas 2MB dan tipe yang diizinkan (png, jpg, webp, gif).
+- Path R2 yang sensitif (mis. bukti transfer manual di `proofs/`) dilindungi oleh `/api/files`: hanya admin atau user pemilik order yang berhak melihatnya. File publik (thumbnail produk, foto review) tetap bisa diakses tanpa login.
+- Tidak ada error verbose yang membocorkan info sensitif. Pesan error pakai bahasa alami dan tidak memancarkan kolom internal seperti `status_reason`.
+- Reservasi, mark paid, dan debit saldo memakai pola CAS (compare-and-swap) di SQL.
+
+---
+
+## Logging & audit
+
+Semua aksi penting dicatat ke `audit_logs`:
+
+- Auth: register, login, logout, ganti password.
+- Order: dibuat, paid, expired, refund, hapus.
+- Admin: login start, login success, logout, perubahan produk/kategori/voucher/review/user/saldo, settings update.
+
+Aturan retensi:
+
+- Order final >30 hari dapat dihapus permanen via tombol admin.
+- Pesan support chat dihapus instan saat admin menutup sesi (admin diminta konfirmasi terlebih dulu). Chat yang ditutup sebelum perubahan ini dibersihkan oleh cron sesuai `cleanup_at` lama.
+- Audit log otomatis di-prune oleh cron sesuai setting `audit_log_retention_days` (default 365 hari, dapat diubah dari Admin Panel > Pengaturan Sistem). Set `0` untuk menyimpan selamanya.
+
+---
+
+## Halaman yang tersedia
+
+User:
+
+- `/` Beranda
+- `/katalog` Katalog dengan filter & sort
+- `/p/:slug` Detail produk
+- `/keranjang`
+- `/login`, `/register`
+- `/checkout`
+- `/pembayaran/:idOrCode`
+- `/sukses/:idOrCode`
+- `/akun`, `/akun/pesanan`, `/akun/pesanan/:idOrCode`, `/akun/pesanan/:idOrCode/chat`, `/akun/pesanan/:idOrCode/invoice`
+
+Admin:
+
+- `/admin/login`
+- `/admin` Dashboard
+- `/admin/produk`, `/admin/kategori`, `/admin/stok/:productId`
+- `/admin/order`, `/admin/order/:idOrCode` (detail order), `/admin/user`
+- `/admin/voucher`, `/admin/review`, `/admin/support`
+- `/admin/maintenance`, `/admin/audit`
+
+---
+
+## Troubleshooting
+
+**OTP admin tidak masuk Telegram.**
+Pastikan `TELEGRAM_BOT_TOKEN` valid dan `TELEGRAM_CHAT_ID` adalah chat ID milik admin (gunakan @userinfobot atau panggil `getUpdates` sekali setelah mengirim pesan ke bot). Saat dev, kode OTP juga tampil di console Wrangler.
+
+**Saat upload stok muncul `parse_failed`.**
+Cek detail error per baris yang dikembalikan di `details.errors`. Pastikan tiap baris minimal `email|password` dan tidak menggunakan pemisah lain.
+
+**Order pending tidak otomatis expired.**
+- Di production, cron `* * * * *` menjalankan handler `scheduled` setiap menit.
+- Lokal Miniflare tidak auto-trigger cron (peringatan muncul di console). Order tetap di-self-heal setiap kali halaman order dibuka oleh user.
+
+**`Internal Server Error` saat login pertama.**
+Pastikan `SESSION_SECRET` di `.dev.vars` (lokal) atau secret (production) sudah ter-set dengan string panjang.
+
+**Edit produk ditolak `locked`.**
+Itu artinya masih ada reservasi aktif. Tunggu order pending expired atau cancel order tersebut.
+
+**Custom theme/color Tailwind ada di mana?**
+Tailwind v4 menggunakan deklarasi tema CSS-first lewat blok `@theme` di `src/client/styles.css`. Tidak ada `tailwind.config.js`. Class custom (`btn`, `card`, `chip`, dll.) dideklarasikan via `@utility` di file yang sama. Panduan lengkap token, komponen, dark mode, dan pola UI ada di [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
+
+---
+
+## Lisensi
+
+Repository ini ditulis untuk keperluan internal. Bebas dipakai dan dimodifikasi sesuai kebutuhan tim.
+
+## Dokumentasi tambahan
+
+- [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) — sistem UI/UX "Aurora Noir": token, komponen, dark mode, pola, dan checklist pengembangan.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — keputusan desain detail per layer.
+- [`docs/PAKASIR-INTEGRATION.md`](docs/PAKASIR-INTEGRATION.md) — referensi lengkap integrasi Pakasir (endpoint, webhook, sandbox).

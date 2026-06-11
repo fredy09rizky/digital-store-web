@@ -1,0 +1,20 @@
+# Salin file ini ke `.dev.vars` untuk pengembangan lokal.
+# JANGAN commit nilai sebenarnya ke repo. File `.dev.vars*` sudah di-ignore
+# oleh git, tapi tetap rotasi token kalau pernah bocor di luar repo.
+
+# HMAC sesi (>= 32 karakter acak)
+SESSION_SECRET="ganti-dengan-string-acak-panjang-min-32-karakter"
+
+# Admin awal (hanya dipakai sekali saat seed admin pertama kali).
+# ADMIN_PASSWORD_HASH dibaca sebagai password plain pada seed pertama, lalu
+# di-hash dan disimpan di tabel admins. Setelah itu nilainya tidak dipakai.
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD_HASH="ganti-dengan-password-awal-yang-kuat"
+
+# Telegram bot untuk OTP login admin (opsional saat dev)
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
+
+# Pakasir (WAJIB - QRIS tidak akan berjalan tanpa ini)
+PAKASIR_API_KEY=""
+PAKASIR_PROJECT=""
