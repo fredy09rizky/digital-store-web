@@ -5,23 +5,20 @@ import {
   Wallet,
   Receipt,
   User,
-  Sparkles,
-  Copy,
   Check,
-  Eye,
-  EyeOff,
   Calendar,
   CreditCard,
   Tag,
   Package,
+  ShieldCheck,
+  KeyRound,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { OrderDetail } from "@shared/types";
 import { rupiah, dateID } from "../lib/format";
 import { useApp } from "../state/AppProviders";
 import { Loading } from "../components/Loading";
-import { LinkButton, IconButton } from "../components/Button";
-import { useToast } from "../components/Toast";
+import { LinkButton } from "../components/Button";
 
 export default function OrderSuccessPage() {
   const { idOrCode } = useParams();
@@ -69,7 +66,7 @@ export default function OrderSuccessPage() {
           </p>
 
           <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-left">
-            <Stat icon={Calendar} label="Tanggal" value={dateID(order.paidAt ?? order.createdAt, { dateStyle: "medium" })} />
+            <Stat icon={Calendar} label="Tanggal" value={dateID(order.paidAt ?? order.createdAt)} />
             <Stat icon={CreditCard} label="Metode" value={methodLabel(order.paymentMethod)} />
             <Stat icon={Tag} label="Total" value={rupiah(order.totalCents)} highlight />
             <Stat icon={CheckCircle2} label="Status" value="LUNAS" success />
@@ -91,34 +88,70 @@ export default function OrderSuccessPage() {
         </div>
       )}
 
-      {/* Delivered accounts */}
-      {!isTopUp && order.deliveredItems.length > 0 && (
+      {/* Ringkasan pesanan */}
+      {!isTopUp && (
         <div className="card p-5 sm:p-6">
           <div className="flex items-center gap-2 mb-3">
             <div className="size-8 rounded-lg bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
-              <Sparkles size={16} />
+              <Receipt size={16} />
             </div>
-            <div className="font-bold text-[var(--color-ink)]">
-              Akun kamu ({order.deliveredItems.length})
-            </div>
+            <div className="font-bold text-[var(--color-ink)]">Ringkasan pesanan</div>
           </div>
-          <ul className="space-y-3">
-            {order.deliveredItems.map((d) => (
-              <DeliveredItemCard
-                key={d.id}
-                productName={d.productName}
-                email={d.payloadEmail}
-                password={d.payloadPassword}
-                note={d.payloadNote}
-                expiry={d.payloadExpiry}
-                extra={d.payloadExtra}
-              />
+          <ul className="divide-y divide-[var(--color-border)]">
+            {order.items.map((it) => (
+              <li key={it.id} className="py-2.5 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm text-[var(--color-ink)] line-clamp-1">
+                    {it.productName}
+                  </div>
+                  <div className="text-xs text-[var(--color-ink-2)]">
+                    {it.qty} × {rupiah(it.unitPriceCents)}
+                  </div>
+                </div>
+                <div
+                  className="font-bold text-sm text-[var(--color-ink)] tabular-nums"
+                  style={{ fontFamily: "var(--font-ui)" }}
+                >
+                  {rupiah(it.subtotalCents)}
+                </div>
+              </li>
             ))}
           </ul>
-          <p className="text-xs text-[var(--color-ink-3)] mt-3 leading-relaxed">
-            Catat akun di tempat aman. Kamu juga bisa melihatnya kapan saja di halaman pesanan dan
-            unduh sebagai invoice.
-          </p>
+          <div className="mt-3 space-y-1.5 text-sm border-t border-[var(--color-border)] pt-3">
+            <SummaryRow label="Subtotal" value={rupiah(order.subtotalCents)} />
+            {order.discountCents > 0 && (
+              <SummaryRow label="Diskon" value={`- ${rupiah(order.discountCents)}`} muted />
+            )}
+            {order.serviceFeeCents > 0 && (
+              <SummaryRow label="Biaya layanan" value={rupiah(order.serviceFeeCents)} muted />
+            )}
+            <SummaryRow label="Total" value={rupiah(order.totalCents)} bold />
+          </div>
+        </div>
+      )}
+
+      {/* Akun: tidak ditampilkan di sini demi keamanan, arahkan ke detail pesanan */}
+      {!isTopUp && order.deliveredItems.length > 0 && (
+        <div className="card p-5 bg-[var(--color-surface-tint)] border-[var(--color-brand-200)] flex items-start gap-3">
+          <ShieldCheck size={22} className="text-[var(--color-brand-700)] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <div className="font-bold text-[var(--color-ink)]">
+              Akun siap diambil ({order.deliveredItems.length})
+            </div>
+            <div className="text-sm text-[var(--color-ink-2)] mt-0.5">
+              Demi keamanan, detail akun tidak ditampilkan di halaman ini. Buka detail pesanan untuk
+              melihat dan menyalin kredensial akunmu.
+            </div>
+            <LinkButton
+              to={`/akun/pesanan/${order.code}`}
+              variant="outline"
+              size="sm"
+              icon={KeyRound}
+              className="mt-2"
+            >
+              Lihat akun di detail pesanan
+            </LinkButton>
+          </div>
         </div>
       )}
 
@@ -193,93 +226,35 @@ function Stat({
   );
 }
 
-function DeliveredItemCard({
-  productName,
-  email,
-  password,
-  note,
-  expiry,
-  extra,
-}: {
-  productName: string;
-  email: string;
-  password: string;
-  note: string | null;
-  expiry: string | null;
-  extra: string | null;
-}) {
-  return (
-    <li className="rounded-xl bg-[var(--color-surface-soft)] border border-[var(--color-border)] p-3 sm:p-4">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-brand-700)] mb-2">
-        {productName}
-      </div>
-      <div className="grid sm:grid-cols-2 gap-2">
-        <CredField label="Email / Akun" value={email} mono />
-        <CredField label="Password" value={password} mono secret />
-        {note && <CredField label="Catatan" value={note} />}
-        {expiry && <CredField label="Expired" value={expiry} />}
-        {extra && <CredField label="Tambahan" value={extra} />}
-      </div>
-    </li>
-  );
-}
-
-function CredField({
+function SummaryRow({
   label,
   value,
-  mono,
-  secret,
+  bold,
+  muted,
 }: {
   label: string;
   value: string;
-  mono?: boolean;
-  secret?: boolean;
+  bold?: boolean;
+  muted?: boolean;
 }) {
-  const [show, setShow] = useState(!secret);
-  const [copied, setCopied] = useState(false);
-  const toast = useToast();
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("Tidak bisa menyalin.");
-    }
-  }
-
   return (
-    <div className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-3)]">
-        {label}
-      </div>
-      <div className="flex items-center gap-1 mt-1">
-        <div
-          className={
-            "text-sm flex-1 min-w-0 break-all text-[var(--color-ink)] " +
-            (mono ? "font-mono" : "")
-          }
-        >
-          {show ? value : "••••••••••"}
-        </div>
-        {secret && (
-          <IconButton
-            icon={show ? EyeOff : Eye}
-            label={show ? "Sembunyikan" : "Tampilkan"}
-            size={14}
-            className="!size-7"
-            onClick={() => setShow((v) => !v)}
-          />
-        )}
-        <IconButton
-          icon={copied ? Check : Copy}
-          label={copied ? "Disalin" : "Salin"}
-          size={14}
-          className={"!size-7 " + (copied ? "!text-[var(--color-success)]" : "")}
-          onClick={copy}
-        />
-      </div>
+    <div
+      className={
+        "flex items-center justify-between " +
+        (muted ? "text-[var(--color-ink-2)]" : "text-[var(--color-ink)]")
+      }
+    >
+      <span>{label}</span>
+      <span
+        className={
+          bold
+            ? "font-extrabold text-base text-[var(--color-ink)] tabular-nums"
+            : "font-semibold tabular-nums"
+        }
+        style={{ fontFamily: "var(--font-ui)" }}
+      >
+        {value}
+      </span>
     </div>
   );
 }

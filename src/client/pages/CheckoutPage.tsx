@@ -206,12 +206,12 @@ export default function CheckoutPage() {
             className="textarea"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            maxLength={280}
+            maxLength={200}
             aria-label="Catatan order"
             placeholder="Mis. preferensi format, region, atau catatan lain untuk admin."
           />
           <div className="flex justify-end text-xs text-[var(--color-ink-3)] mt-1">
-            {notes.length}/280
+            {notes.length}/200
           </div>
         </div>
       </div>

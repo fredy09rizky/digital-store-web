@@ -7,7 +7,6 @@ export interface ProductRow {
   name: string;
   slug: string;
   description: string;
-  short_desc: string;
   thumbnail_url: string | null;
   price_cents: number;
   sale_price_cents: number | null;

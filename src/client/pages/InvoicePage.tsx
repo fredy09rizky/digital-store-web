@@ -77,7 +77,9 @@ export default function InvoicePage() {
           {/* Meta strip */}
           <div className="mt-6 grid sm:grid-cols-3 gap-3">
             <MetaBox label="Pelanggan">
-              <div className="font-semibold text-[var(--color-ink)]">@{boot?.user?.username}</div>
+              <div className="font-semibold text-[var(--color-ink)]">
+                {boot?.user?.displayName ? boot.user.displayName : `@${boot?.user?.username ?? ""}`}
+              </div>
               <div className="text-[var(--color-ink-2)] text-xs truncate">{boot?.user?.email}</div>
             </MetaBox>
             <MetaBox label="Metode">
@@ -160,6 +162,31 @@ export default function InvoicePage() {
       </div>
 
       <style>{`
+        /* Invoice adalah dokumen: warnanya harus tetap (light) terlepas dari
+           tema aplikasi. Tanpa ini, saat dark mode aktif token --color-*
+           bernilai gelap sehingga isi invoice (teks/permukaan) ikut gelap,
+           baik di preview maupun hasil cetak/Save as PDF. Kita kunci ulang
+           token ke nilai light HANYA di dalam .invoice. Di light mode nilainya
+           identik (no-op); di dark mode ini memaksa tampilan tetap terang. */
+        .invoice {
+          --color-surface: #ffffff;
+          --color-surface-soft: #f6f6fb;
+          --color-surface-tint: #f1eefe;
+          --color-surface-mute: #eceaf3;
+          --color-border: #e8e6f1;
+          --color-border-strong: #d6d3e4;
+          --color-brand-700: #3f32a3;
+          --color-ink: #15131f;
+          --color-ink-2: #56536c;
+          --color-ink-3: #6f6c84;
+          --color-ink-invert: #ffffff;
+          --color-success: #0e9f6e;
+          --color-aurora-1: #5b4bda;
+          --color-aurora-2: #8b3fd6;
+          --color-aurora-3: #c2389a;
+          background-color: var(--color-surface);
+          color: var(--color-ink);
+        }
         @media print {
           body { background: #fff !important; }
           /* Paksa browser mencetak warna & gradient (logo, accent bar, chip)

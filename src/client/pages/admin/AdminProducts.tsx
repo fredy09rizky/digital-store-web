@@ -39,7 +39,6 @@ interface Prow {
   sale_price_cents: number | null;
   duration_label: string | null;
   warranty_note: string | null;
-  short_desc: string;
   description: string;
   status: string;
   is_featured: number;
@@ -51,7 +50,6 @@ interface PEdit {
   id?: string;
   categoryId: string;
   name: string;
-  shortDesc: string;
   description: string;
   thumbnailUrl: string;
   priceCents: number;
@@ -102,7 +100,6 @@ export default function AdminProducts() {
     setEdit({
       categoryId: cats[0]?.id ?? "",
       name: "",
-      shortDesc: "",
       description: "",
       thumbnailUrl: "",
       priceCents: 0,
@@ -126,7 +123,6 @@ export default function AdminProducts() {
         id: full.id,
         categoryId: full.category_id,
         name: full.name,
-        shortDesc: full.short_desc,
         description: full.description,
         thumbnailUrl: full.thumbnail_url ?? "",
         priceCents: full.price_cents,
@@ -149,7 +145,6 @@ export default function AdminProducts() {
       const payload = {
         categoryId: edit.categoryId,
         name: edit.name,
-        shortDesc: edit.shortDesc,
         description: edit.description,
         thumbnailUrl: edit.thumbnailUrl || null,
         priceCents: edit.priceCents,
@@ -585,22 +580,13 @@ function ProductModal({
           </Field>
         </div>
 
-        <Field label="Deskripsi singkat">
-          <input
-            className="input"
-            value={edit.shortDesc}
-            onChange={(e) => onChange({ ...edit, shortDesc: e.target.value })}
-            placeholder="Tampil di card katalog (≤ 300 karakter)"
-            maxLength={300}
-          />
-        </Field>
-        <Field label="Deskripsi lengkap">
+        <Field label="Deskripsi">
           <textarea
             className="textarea !min-h-[120px]"
             value={edit.description}
             onChange={(e) => onChange({ ...edit, description: e.target.value })}
-            placeholder="Detail spesifikasi, fitur, syarat, dll."
-            maxLength={8000}
+            placeholder="Detail spesifikasi, fitur, syarat, dll. (≤ 2000 karakter). Juga dipakai untuk pencarian."
+            maxLength={2000}
           />
         </Field>
         <Field label="Catatan garansi">

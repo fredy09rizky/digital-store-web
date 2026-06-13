@@ -10,7 +10,7 @@ export interface BootstrapData {
   maintenance: { active: boolean; message: string };
   paymentOptions: { qris: boolean; bankTransfer: boolean; wallet: boolean };
   manualBank: { name: string; account: string; holder: string; note: string } | null;
-  user: { id: string; username: string; email: string; balanceCents: number } | null;
+  user: { id: string; username: string; email: string; displayName: string | null; balanceCents: number } | null;
 }
 
 interface AppContextValue {
@@ -59,9 +59,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const c = await api<{ items: { id: string; qty: number }[] }>("/cart");
-      const total = (c.items ?? []).reduce((s, it) => s + (it.qty ?? 0), 0);
-      setCartCount(total);
+      const c = await api<{ items: { id: string }[] }>("/cart");
+      // Badge menghitung jumlah produk berbeda di keranjang (bukan total qty),
+      // supaya lebih intuitif: 1 baris item = 1 hitungan.
+      setCartCount((c.items ?? []).length);
     } catch {
       // diam: badge cart bukan blocker. Tampilkan 0 saja kalau gagal.
       setCartCount(0);

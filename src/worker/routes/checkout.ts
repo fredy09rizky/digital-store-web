@@ -9,7 +9,7 @@ const app = new Hono<AppContext>({ strict: false });
 const Body = z.object({
   paymentMethod: z.enum(["qris", "bank_transfer", "wallet"]),
   voucherCode: z.string().trim().max(40).optional().nullable(),
-  notes: z.string().trim().max(280).optional(),
+  notes: z.string().trim().max(200).optional(),
 });
 
 app.post("/", async (c) => {

@@ -11,6 +11,7 @@ export interface AppBindings {
   ADMIN_OTP_RESEND_COOLDOWN: string;
   ADMIN_OTP_MAX_RESENDS: string;
   PAYMENT_EXPIRY_SECONDS: string;
+  MAX_STOCK_PER_PRODUCT?: string;
 
   SESSION_SECRET: string;
   ADMIN_USERNAME?: string;
@@ -25,6 +26,7 @@ export type AuthUser = {
   id: string;
   username: string;
   email: string;
+  displayName: string | null;
   sessionId: string;
   sessionVersion: number;
   balanceCents: number;

@@ -12,25 +12,39 @@ import {
 } from "../lib/cookies";
 import { rateLimit } from "../lib/rate-limit";
 import { audit } from "../lib/audit";
+import {
+  validateUsername,
+  validateEmail,
+  validatePassword,
+  validateDisplayName,
+} from "../../shared/constants";
 
 const app = new Hono<AppContext>({ strict: false });
 
 const RegisterBody = z.object({
-  username: z
-    .string()
-    .trim()
-    .min(3)
-    .max(24)
-    .regex(/^[a-zA-Z0-9_.-]+$/, "Username hanya boleh huruf, angka, titik, garis bawah, atau strip."),
+  username: z.string().trim().min(1).max(40),
   email: z.string().trim().email().max(120),
-  password: z.string().min(8).max(72),
-  displayName: z.string().trim().max(60).optional(),
+  password: z.string().min(1).max(200),
+  displayName: z.string().trim().max(120).optional(),
 });
 
 app.post("/register", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = RegisterBody.safeParse(body);
   if (!parsed.success) return fail(c, "validation", "Data registrasi tidak valid.", 400, parsed.error.flatten());
+
+  // Validasi aturan akun (sumber kebenaran). Pesan spesifik dikembalikan apa
+  // adanya agar user tahu persis bagian mana yang salah.
+  const usernameErr = validateUsername(parsed.data.username);
+  if (usernameErr) return fail(c, "validation", usernameErr, 400);
+  const emailErr = validateEmail(parsed.data.email);
+  if (emailErr) return fail(c, "validation", emailErr, 400);
+  const passwordErr = validatePassword(parsed.data.password);
+  if (passwordErr) return fail(c, "validation", passwordErr, 400);
+  if (parsed.data.displayName) {
+    const dnErr = validateDisplayName(parsed.data.displayName);
+    if (dnErr) return fail(c, "validation", dnErr, 400);
+  }
 
   const ts = now();
   const ip = c.get("ip");
@@ -171,8 +185,8 @@ app.post("/logout", async (c) => {
 });
 
 const ChangePasswordBody = z.object({
-  currentPassword: z.string().min(1).max(120),
-  newPassword: z.string().min(8).max(72),
+  currentPassword: z.string().min(1).max(200),
+  newPassword: z.string().min(1).max(200),
 });
 
 app.post("/change-password", async (c) => {
@@ -181,6 +195,10 @@ app.post("/change-password", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = ChangePasswordBody.safeParse(body);
   if (!parsed.success) return fail(c, "validation", "Password tidak valid.", 400);
+
+  // Password baru wajib memenuhi policy yang sama dengan registrasi.
+  const pErr = validatePassword(parsed.data.newPassword);
+  if (pErr) return fail(c, "validation", pErr, 400);
 
   const u = await c.env.DB.prepare(
     "SELECT password_hash, password_salt FROM users WHERE id = ?",

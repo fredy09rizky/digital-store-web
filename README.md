@@ -46,6 +46,7 @@ Web store fullstack untuk menjual akun premium dan item digital lainnya, dibangu
 - 💬 Support chat per order, riwayat dihapus instan saat admin menutup sesi (dengan dialog konfirmasi), log dapat di-export CSV sebelum ditutup.
 - 🧹 Cron tiap menit: auto-expire order pending, cleanup chat lama (legacy), dan prune audit log sesuai retensi.
 - 📱 UI responsive & premium (design system **"Aurora Noir"**: aksen iris/violet, tipografi Space Grotesk + Inter + JetBrains Mono) dengan **dark mode** (toggle + ikut sistem) dan microinteraction halus. Detail di [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
+- 🕒 Semua tanggal/waktu ditampilkan dalam zona **Asia/Jakarta (WIB, GMT+7)** dengan label "WIB" pada tampilan berjam. Invoice memakai warna tetap (light) saat dicetak/Save as PDF, tidak ikut dark mode.
 
 ---
 
@@ -95,7 +96,11 @@ digital-store-web-cf/
 │  ├─ 0003_manual_bank_settings.sql
 │  ├─ 0004_perf_indexes.sql
 │  ├─ 0005_more_perf_indexes.sql
-│  └─ 0006_cleanup_and_retention.sql
+│  ├─ 0006_cleanup_and_retention.sql
+│  ├─ 0007_unique_price_tier.sql
+│  ├─ 0008_drop_product_badges.sql
+│  ├─ 0009_max_wallet_balance.sql
+│  └─ 0010_drop_short_desc.sql
 ├─ seeds/                       # SQL seed kategori, settings, dan produk demo
 │  ├─ seed.sql
 │  └─ seed-products.sql
@@ -215,6 +220,7 @@ npm run db:seed:local
 | `ADMIN_OTP_RESEND_COOLDOWN` | `vars` | Cooldown resend OTP (detik). |
 | `ADMIN_OTP_MAX_RESENDS` | `vars` | Maksimal resend per ticket. |
 | `PAYMENT_EXPIRY_SECONDS` | `vars` | Waktu kedaluwarsa order pending (detik). |
+| `MAX_STOCK_PER_PRODUCT` | `vars` | Batas maksimal stok hidup (available + reserved) per produk (default 1000). Naikkan di `wrangler.toml` lalu deploy ulang bila perlu lebih banyak. |
 | `SESSION_SECRET` | secret | Kunci HMAC sesi. WAJIB diisi (>= 32 karakter acak). |
 | `ADMIN_USERNAME` | secret | Username admin awal (dipakai sekali saat seed). |
 | `ADMIN_PASSWORD_HASH` | secret | Password plain pertama (otomatis di-hash saat seed admin). |
@@ -284,6 +290,7 @@ Migrasi yang tersedia:
 - `0007_unique_price_tier.sql` — ganti index `product_price_tiers(product_id, min_qty)` menjadi UNIQUE agar tidak ada dua tier grosir dengan min_qty sama per produk (integritas di level DB).
 - `0008_drop_product_badges.sql` — hapus kolom `products.badges` (label promo manual yang tidak pernah dirender; label visual −X%/READY/LARIS dihitung otomatis dari data).
 - `0009_max_wallet_balance.sql` — default setting `max_wallet_balance_cents` (batas saldo maksimal user, default Rp1.000.000; `0` = tanpa batas).
+- `0010_drop_short_desc.sql` — hapus kolom `products.short_desc`. Deskripsi singkat & lengkap disatukan jadi satu field **Deskripsi** (maks 2000 karakter). Pencarian katalog kini memakai kolom `description`.
 
 ---
 
@@ -310,13 +317,15 @@ Catatan deployment:
 - Beranda menampilkan produk terbaru (default), populer, promo, ready.
 - Search bar di-submit dengan tombol kirim ke `/katalog?q=...`.
 - Filter: kategori, range harga, ready stock, sort (terbaru, populer, terlaris, termurah, termahal).
-- Detail produk menampilkan harga, label promo, stok, durasi, garansi, harga grosir, review approved + foto.
+- Detail produk menampilkan harga, label promo, stok, durasi, garansi, harga grosir, review approved + foto. Galeri gambar utama dirender utuh (`object-contain` + backdrop blur) sehingga gambar dengan rasio non-4:3 tidak terpotong.
+- Keranjang: jumlah (qty) bisa diatur lewat tombol +/- **atau diketik langsung** (memudahkan qty besar). Input di-commit saat blur/Enter, dengan validasi: tidak boleh 0/kosong (balik ke nilai semula) dan tidak melebihi stok tersedia (di-clamp). Batas qty per item adalah **stok tersedia** itu sendiri — divalidasi backend; tidak ada cap angka tetap (hanya ada sanity guard `CART_QTY_MAX` yang sangat tinggi untuk menolak input rusak).
 
 ### 2. Checkout
 
 - Wajib login. Backend memvalidasi ulang harga, stok, dan voucher saat order dibuat.
 - Sistem membuat order shell, lalu mereservasi stok atomik per produk. Jika gagal, order dihapus dan user diberi alasan jelas.
 - Stok masuk status `reserved` dan tetap terkunci hingga pembayaran sukses atau order expired.
+- Catatan order opsional, maksimal 200 karakter.
 
 ### 3. Pembayaran
 
@@ -327,12 +336,12 @@ Catatan deployment:
   - Auto-poll adaptif 30s → 10s → 5s saat mendekati expired.
   - Tombol manual otomatis disabled saat <=15 detik tersisa, polling tetap berjalan.
   - Saat expired, tombol bayar dinonaktifkan, user diarahkan untuk membuat order baru.
-- Saat status sukses, user diarahkan ke `/sukses/<code>` dan dapat unduh invoice.
+- Saat status sukses, user diarahkan ke `/sukses/<code>`. Halaman sukses menampilkan ringkasan seperlunya (tanggal/waktu WIB, metode, daftar item + total, status, kode order) — **bukan** kredensial akun. Akun ditampilkan di detail pesanan, dan invoice dapat diunduh.
 
 ### 4. Pengiriman akun
 
 - Begitu order paid, reservasi di `product_inventory_items` di-commit ke status `sold`.
-- Email/password akun langsung tampil di halaman sukses dan detail pesanan (akun saya). Invoice sengaja **tidak** memuat kredensial demi keamanan & menjaga ukuran PDF.
+- Email/password akun ditampilkan di **detail pesanan** (`/akun/pesanan/<code>`). Halaman sukses pembayaran hanya menampilkan ringkasan, **tidak** memuat kredensial demi keamanan. Invoice juga sengaja **tidak** memuat kredensial demi keamanan & menjaga ukuran PDF.
 - Cron auto-expire akan melepas reservasi pada order yang tidak dibayar.
 
 ### 5. Setelah pembelian
@@ -340,6 +349,28 @@ Catatan deployment:
 - Akun saya: profil, saldo, mutasi, daftar order, detail order, invoice, chat support, pengajuan refund, review.
 - Refund: user mengajukan via tombol di order detail; backend membuka chat support dan mengirim pesan otomatis. Admin dapat menyetujui yang masuk ke saldo, atau mengirim akun pengganti via chat.
 - Review: hanya pembeli yang berhak. Maksimal 2 foto, 2MB per foto, status pending menunggu moderasi admin.
+
+### Identitas user: username vs nama tampilan
+
+- **Username** wajib, unik, dipakai untuk login. Di UI biasanya ditampilkan dengan prefix `@` (mis. `@budi123`).
+- **Nama tampilan** (`display_name`) opsional (maks 60 karakter), diisi saat registrasi. Ini nama "ramah dibaca" yang ditampilkan ke user, tanpa prefix `@`.
+- Aturan tampilan: **nama tampilan dipakai bila ada, jika kosong jatuh ke username**.
+  - Avatar header memakai huruf pertama dari `displayName || username`.
+  - Nama di drawer mobile dan kolom "Pelanggan" pada invoice memakai `displayName`; bila kosong → `@username`.
+  - Halaman Akun tetap menampilkan keduanya (username sebagai identitas login + nama tampilan).
+- **Review produk tetap memakai `@username`** (bukan nama tampilan) karena review bersifat publik — menghindari membocorkan nama asli ke pengunjung lain.
+- `displayName` tersedia lewat `/api/bootstrap` (`user.displayName`) dan diisi dari `display_name` di middleware auth. Saat user di-soft delete, `display_name` di-set `NULL` (anonimisasi).
+
+### Aturan registrasi akun
+
+Divalidasi di backend (`routes/auth.ts`) dan dicerminkan di form (`RegisterPage.tsx`). Aturan dipusatkan di `src/shared/constants.ts` (validator + konstanta) agar client & worker konsisten; backend tetap sumber kebenaran.
+
+- **Username**: 5–20 karakter, **hanya huruf, angka, dan garis bawah (`_`)**. Titik (`.`), plus (`+`), dan strip (`-`) ditolak. Disimpan lowercase dan wajib unik.
+- **Email**: format valid, **hanya domain populer** yang diizinkan (Gmail/Googlemail, Outlook/Hotmail/Live/MSN, Yahoo/Yahoo.co.id/Ymail, iCloud/me/mac, Proton). Tidak boleh ada tanda `+`, dan **maksimal 3 titik** di seluruh email. Daftar domain ada di `ALLOWED_EMAIL_DOMAINS` (mudah ditambah).
+- **Nama tampilan**: opsional, maksimal **30** karakter.
+- **Password**: **10–72 karakter**, wajib huruf besar, huruf kecil, angka, dan **minimal satu simbol dari `@ ! # $ % & *`**. Hanya boleh huruf, angka, dan simbol tersebut (karakter lain ditolak).
+- Policy password yang sama juga berlaku saat user **mengganti password** (`/auth/change-password`). Reset password oleh admin tidak dibatasi policy ini.
+- Pesan error dikembalikan spesifik per aturan (mis. "Email tidak boleh mengandung lebih dari 3 titik.") dan ditampilkan jelas di form, dilengkapi checklist syarat live.
 
 ---
 
@@ -397,6 +428,8 @@ Aturan:
 
 - Stok tidak bisa hanya berupa angka; admin harus mengupload data nyata.
 - Stok aktif = jumlah baris dengan status `available`. `reserved` dan `sold` tidak ditampilkan ke katalog.
+- Batas maksimal stok hidup (available + reserved) per produk dijaga oleh `MAX_STOCK_PER_PRODUCT` (default 1000). Upload yang membuat stok hidup melewati batas ditolak dengan kode `stock_limit_exceeded` yang menyebut sisa kuota. `sold` (historis) dan `invalid` (dinonaktifkan) tidak dihitung terhadap batas. Untuk menaikkan batas, ubah `MAX_STOCK_PER_PRODUCT` di `wrangler.toml` lalu deploy ulang.
+- Halaman Stok Produk admin menampilkan daftar item dengan **pagination** (50 per halaman). Statistik Total/Available/Reserved/Sold/Invalid dihitung di server lewat agregasi `GROUP BY status`, jadi akurat lepas dari halaman yang sedang dibuka.
 - Saat ada reservasi aktif, edit produk dikunci (`locked`). Hapus reservasi lewat order expired/cancel sebelum mengubah produk.
 
 ---
@@ -498,8 +531,8 @@ Aksi sensitif (hapus user, reset password user, hapus order, refund, ubah saldo)
 Fitur admin:
 
 - Dashboard: omzet hari ini, order paid/pending/expired, user aktif, stok aktif, review menunggu, saldo masuk, refund hari ini, voucher aktif, chat butuh tindak lanjut, best seller hari ini.
-- Produk: tambah/edit/hapus, kategori, harga, harga promo, durasi, harga grosir bertingkat, gambar (thumbnail + galeri maks 5, masing-masing ≤ 2 MB), status. Edit dikunci saat ada reservasi aktif. Tier harga & galeri ikut termuat saat edit sehingga tidak hilang saat disimpan ulang.
-- Stok: paste/import TXT, lihat per item, tandai invalid.
+- Produk: tambah/edit/hapus, kategori, harga, harga promo, durasi, harga grosir bertingkat, deskripsi (satu field, maks 2000 karakter, juga dipakai untuk pencarian), gambar (thumbnail + galeri maks 5, masing-masing ≤ 2 MB), status. Edit dikunci saat ada reservasi aktif. Tier harga & galeri ikut termuat saat edit sehingga tidak hilang saat disimpan ulang.
+- Stok: paste/import TXT, lihat per item dengan pagination (50/halaman), tandai invalid. Statistik status dihitung server-side. Batas stok per produk via `MAX_STOCK_PER_PRODUCT`.
 - Order: filter status, **buka detail order** (item, pembayaran, bukti transfer manual, akun terkirim), tandai paid manual, refund, hapus, bersihkan order >30 hari, export CSV.
 - User: filter, nonaktifkan, aktifkan, hapus permanen / soft delete (lihat [Penghapusan user](#penghapusan-user)), reset password, sesuaikan saldo (dengan ack password admin).
 - Voucher: CRUD penuh dengan kalender aktif.

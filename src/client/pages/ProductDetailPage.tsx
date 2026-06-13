@@ -114,13 +114,24 @@ export default function ProductDetailPage() {
           <div className="card overflow-hidden">
             <div className="relative aspect-[4/3] bg-gradient-to-br from-[var(--color-surface-tint)] to-[var(--color-surface-soft)]">
               {activeImg ? (
-                <img
-                  src={activeImg}
-                  alt={p.name}
-                  loading="eager"
-                  decoding="async"
-                  className="size-full object-cover"
-                />
+                <>
+                  {/* Backdrop blur dari gambar yang sama untuk mengisi ruang
+                      kosong saat rasio gambar bukan 4:3, sehingga gambar utama
+                      (object-contain) tetap utuh tanpa terpotong. */}
+                  <img
+                    src={activeImg}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute inset-0 size-full object-cover blur-2xl scale-110 opacity-40"
+                  />
+                  <img
+                    src={activeImg}
+                    alt={p.name}
+                    loading="eager"
+                    decoding="async"
+                    className="relative size-full object-contain"
+                  />
+                </>
               ) : (
                 <div className="size-full grid place-items-center text-[var(--color-brand-300)]">
                   <ImageIcon size={48} />

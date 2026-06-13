@@ -150,7 +150,7 @@ function UserShell({ children }: { children: React.ReactNode }) {
                   className="size-8 rounded-full grid place-items-center text-sm font-bold text-white"
                   style={{ background: "linear-gradient(135deg, var(--color-aurora-1), var(--color-aurora-3))" }}
                 >
-                  {boot.user.username.slice(0, 1).toUpperCase()}
+                  {(boot.user.displayName || boot.user.username).slice(0, 1).toUpperCase()}
                 </div>
               </Link>
             ) : (
@@ -200,10 +200,10 @@ function UserShell({ children }: { children: React.ReactNode }) {
                     className="size-10 rounded-full grid place-items-center text-base font-bold text-white"
                     style={{ background: "linear-gradient(135deg, var(--color-aurora-1), var(--color-aurora-3))" }}
                   >
-                    {boot.user.username.slice(0, 1).toUpperCase()}
+                    {(boot.user.displayName || boot.user.username).slice(0, 1).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <div className="font-semibold text-[var(--color-ink)] truncate">{boot.user.username}</div>
+                    <div className="font-semibold text-[var(--color-ink)] truncate">{boot.user.displayName || boot.user.username}</div>
                     <div className="text-xs text-[var(--color-ink-2)] tabular-nums" style={{ fontFamily: "var(--font-ui)" }}>
                       Saldo {rupiah(boot.user.balanceCents)}
                     </div>

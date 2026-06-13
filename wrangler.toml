@@ -54,6 +54,10 @@ ADMIN_OTP_TTL_SECONDS = "300"
 ADMIN_OTP_RESEND_COOLDOWN = "120"
 ADMIN_OTP_MAX_RESENDS = "3"
 PAYMENT_EXPIRY_SECONDS = "300"
+# Batas maksimal stok (available + reserved) per produk. Admin tidak bisa
+# menambah stok bila melebihi nilai ini. Naikkan di sini lalu deploy ulang
+# kalau perlu lebih banyak.
+MAX_STOCK_PER_PRODUCT = "1000"
 
 # Secrets WAJIB (set via `wrangler secret put`)
 # - SESSION_SECRET           : kunci HMAC sesi (string acak panjang min 32 karakter)

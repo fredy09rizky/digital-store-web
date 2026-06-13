@@ -22,6 +22,7 @@ import { dateID } from "../../lib/format";
 import { Button, IconButton } from "../../components/Button";
 import { Empty } from "../../components/Empty";
 import { TableRowSkeleton } from "../../components/Loading";
+import { Pagination } from "../../components/Pagination";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 
 interface ItemRow {
@@ -37,6 +38,22 @@ interface ItemRow {
   created_at: number;
 }
 
+interface StockStats {
+  total: number;
+  available: number;
+  reserved: number;
+  sold: number;
+  invalid: number;
+}
+
+interface StockResponse {
+  items: ItemRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  stats: StockStats;
+}
+
 const STATUS_CLS: Record<string, string> = {
   available: "bg-[color-mix(in_srgb,var(--color-success)_14%,transparent)] text-[var(--color-success)] border-[color-mix(in_srgb,var(--color-success)_32%,transparent)]",
   reserved: "bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-[var(--color-warning)] border-[color-mix(in_srgb,var(--color-warning)_32%,transparent)]",
@@ -46,7 +63,8 @@ const STATUS_CLS: Record<string, string> = {
 
 export default function AdminStock() {
   const { productId } = useParams();
-  const [list, setList] = useState<ItemRow[] | null>(null);
+  const [data, setData] = useState<StockResponse | null>(null);
+  const [page, setPage] = useState(1);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAllPwd, setShowAllPwd] = useState(false);
@@ -54,13 +72,19 @@ export default function AdminStock() {
   const [confirmInvalidOpen, setConfirmInvalidOpen] = useState(false);
   const toast = useToast();
 
+  const PAGE_SIZE = 50;
+  const list = data?.items ?? null;
+  const stats = data?.stats ?? null;
+
   async function load() {
-    setList(await api<ItemRow[]>(`/admin/products/${productId}/stock`));
+    setData(
+      await api<StockResponse>(`/admin/products/${productId}/stock?page=${page}&page_size=${PAGE_SIZE}`),
+    );
   }
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId]);
+  }, [productId, page]);
 
   async function upload(textVal: string) {
     if (!textVal.trim()) return toast.error("Tidak ada data.");
@@ -71,7 +95,8 @@ export default function AdminStock() {
       });
       toast.success(`${r.added} item ditambahkan.`);
       setText("");
-      load();
+      if (page !== 1) setPage(1);
+      else load();
     } catch (e: any) {
       toast.error(e?.message ?? "Gagal upload.");
     } finally {
@@ -101,16 +126,7 @@ export default function AdminStock() {
     }
   }
 
-  // Statistik cepat
-  const stats = list
-    ? {
-        total: list.length,
-        available: list.filter((x) => x.status === "available").length,
-        reserved: list.filter((x) => x.status === "reserved").length,
-        sold: list.filter((x) => x.status === "sold").length,
-        invalid: list.filter((x) => x.status === "invalid").length,
-      }
-    : null;
+  // Statistik diambil dari server (akurat lepas dari pagination).
 
   return (
     <div className="space-y-4">
@@ -307,6 +323,16 @@ user2@mail.com|S3cret|extra info`}
             </tbody>
           </table>
         </div>
+        {data && (
+          <div className="px-4 pb-3">
+            <Pagination
+              page={data.page}
+              pageSize={data.pageSize}
+              total={data.total}
+              onPageChange={setPage}
+            />
+          </div>
+        )}
       </section>
 
       {/* Floating action bar saat ada selection */}

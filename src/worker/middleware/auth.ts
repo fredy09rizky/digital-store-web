@@ -14,13 +14,14 @@ export const attachAuth: MiddlewareHandler<AppContext> = async (c, next) => {
     if (result && result.payload.k === "user") {
       // Verifikasi version + status user
       const row = await c.env.DB.prepare(
-        "SELECT id, username, email, status, balance_cents, session_version FROM users WHERE id = ?",
+        "SELECT id, username, email, display_name, status, balance_cents, session_version FROM users WHERE id = ?",
       )
         .bind(result.payload.uid)
         .first<{
           id: string;
           username: string;
           email: string;
+          display_name: string | null;
           status: string;
           balance_cents: number;
           session_version: number;
@@ -30,6 +31,7 @@ export const attachAuth: MiddlewareHandler<AppContext> = async (c, next) => {
           id: row.id,
           username: row.username,
           email: row.email,
+          displayName: row.display_name,
           balanceCents: row.balance_cents,
           sessionId: result.payload.sid,
           sessionVersion: row.session_version,

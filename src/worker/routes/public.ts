@@ -37,6 +37,7 @@ app.get("/bootstrap", async (c) => {
           id: user.id,
           username: user.username,
           email: user.email,
+          displayName: user.displayName,
           balanceCents: user.balanceCents,
         }
       : null,
@@ -74,7 +75,7 @@ app.get("/products", async (c) => {
   const where: string[] = ["p.status='active'"];
   const binds: any[] = [];
   if (q.q) {
-    where.push("(p.name LIKE ? OR p.short_desc LIKE ?)");
+    where.push("(p.name LIKE ? OR p.description LIKE ?)");
     binds.push(`%${q.q}%`, `%${q.q}%`);
   }
   if (q.category) {
@@ -108,7 +109,7 @@ app.get("/products", async (c) => {
   const limit = q.page_size;
   const offset = (q.page - 1) * limit;
   const sql = `
-    SELECT p.id, p.sku, p.slug, p.name, p.short_desc, p.thumbnail_url, p.price_cents,
+    SELECT p.id, p.sku, p.slug, p.name, p.thumbnail_url, p.price_cents,
            p.sale_price_cents, p.duration_label, p.sales_count, p.rating_sum,
            p.rating_count, p.created_at,
            c.id AS category_id, c.slug AS category_slug, c.name AS category_name,
@@ -133,7 +134,6 @@ app.get("/products", async (c) => {
     sku: r.sku,
     slug: r.slug,
     name: r.name,
-    shortDesc: r.short_desc,
     thumbnailUrl: r.thumbnail_url,
     priceCents: r.price_cents,
     salePriceCents: r.sale_price_cents,
@@ -209,7 +209,6 @@ app.get("/products/:slug", async (c) => {
     sku: r.sku,
     slug: r.slug,
     name: r.name,
-    shortDesc: r.short_desc,
     description: r.description,
     thumbnailUrl: r.thumbnail_url,
     priceCents: r.price_cents,
@@ -241,7 +240,7 @@ app.get("/products/:slug", async (c) => {
 
 app.get("/home", async (c) => {
   const stockExpr = `(SELECT COUNT(*) FROM product_inventory_items i WHERE i.product_id = p.id AND i.status='available')`;
-  const baseFields = `p.id, p.sku, p.slug, p.name, p.short_desc, p.thumbnail_url,
+  const baseFields = `p.id, p.sku, p.slug, p.name, p.thumbnail_url,
                       p.price_cents, p.sale_price_cents, p.duration_label,
                       p.sales_count, p.rating_sum, p.rating_count, p.created_at,
                       c.id AS category_id, c.slug AS category_slug, c.name AS category_name,
@@ -269,7 +268,6 @@ app.get("/home", async (c) => {
       sku: r.sku,
       slug: r.slug,
       name: r.name,
-      shortDesc: r.short_desc,
       thumbnailUrl: r.thumbnail_url,
       priceCents: r.price_cents,
       salePriceCents: r.sale_price_cents,

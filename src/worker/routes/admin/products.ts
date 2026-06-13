@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppContext } from "../../env";
+import { envInt } from "../../env";
 import { fail, ok } from "../../lib/response";
 import { now } from "../../lib/time";
 import { nanoId, skuFromName } from "../../lib/id";
 import { audit } from "../../lib/audit";
+import { buildPage, parsePagination } from "../../lib/pagination";
 import { hasActiveReservations } from "../../services/inventory-reserve";
 import { parseInventoryText } from "../../services/inventory-parser";
 import { noEmoji, NO_EMOJI_MSG, firstIssueMessage, imageUrlSchema } from "../../lib/validation";
@@ -54,8 +56,7 @@ const ProductBody = z
   .object({
     categoryId: z.string().min(1),
     name: z.string().trim().min(2).max(120).refine(noEmoji, NO_EMOJI_MSG),
-    shortDesc: z.string().trim().max(300).refine(noEmoji, NO_EMOJI_MSG).default(""),
-    description: z.string().trim().max(8000).refine(noEmoji, NO_EMOJI_MSG).default(""),
+    description: z.string().trim().max(2000).refine(noEmoji, NO_EMOJI_MSG).default(""),
     thumbnailUrl: imageUrlSchema.optional().nullable(),
     priceCents: z.coerce.number().int().min(0).max(1_000_000_000),
     salePriceCents: z.coerce.number().int().min(0).max(1_000_000_000).nullable().optional(),
@@ -111,10 +112,10 @@ app.post("/", async (c) => {
   const slug = `${parsed.data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${nanoId("", 4)}`;
   const sku = skuFromName(parsed.data.name);
   await c.env.DB.prepare(
-    `INSERT INTO products (id, sku, category_id, name, slug, description, short_desc, thumbnail_url,
+    `INSERT INTO products (id, sku, category_id, name, slug, description, thumbnail_url,
                            price_cents, sale_price_cents, duration_label, warranty_note,
                            status, is_featured, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -123,7 +124,6 @@ app.post("/", async (c) => {
       parsed.data.name,
       slug,
       parsed.data.description,
-      parsed.data.shortDesc,
       parsed.data.thumbnailUrl ?? null,
       parsed.data.priceCents,
       parsed.data.salePriceCents ?? null,
@@ -172,7 +172,7 @@ app.put("/:id", async (c) => {
   }
   const ts = now();
   await c.env.DB.prepare(
-    `UPDATE products SET category_id=?, name=?, description=?, short_desc=?, thumbnail_url=?,
+    `UPDATE products SET category_id=?, name=?, description=?, thumbnail_url=?,
                          price_cents=?, sale_price_cents=?, duration_label=?, warranty_note=?,
                          status=?, is_featured=?, updated_at=?
      WHERE id=?`,
@@ -181,7 +181,6 @@ app.put("/:id", async (c) => {
       parsed.data.categoryId,
       parsed.data.name,
       parsed.data.description,
-      parsed.data.shortDesc,
       parsed.data.thumbnailUrl ?? null,
       parsed.data.priceCents,
       parsed.data.salePriceCents ?? null,
@@ -252,6 +251,29 @@ app.post("/stock/upload", async (c) => {
       validCount: result.items.length,
     });
   if (result.items.length === 0) return fail(c, "empty", "Tidak ada item valid.");
+
+  // Batas maksimal stok per produk. Yang dihitung adalah stok "hidup"
+  // (available + reserved); sold (historis) dan invalid (dinonaktifkan) tidak
+  // ikut. Default 1000, dapat dinaikkan lewat MAX_STOCK_PER_PRODUCT di
+  // wrangler.toml lalu deploy ulang.
+  const maxStock = envInt(c.env.MAX_STOCK_PER_PRODUCT, 1000);
+  const liveRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS c FROM product_inventory_items WHERE product_id = ? AND status IN ('available','reserved')",
+  )
+    .bind(parsed.data.productId)
+    .first<{ c: number }>();
+  const live = liveRow?.c ?? 0;
+  if (live + result.items.length > maxStock) {
+    const remaining = Math.max(0, maxStock - live);
+    return fail(
+      c,
+      "stock_limit_exceeded",
+      `Melebihi batas stok. Sisa kuota ${remaining.toLocaleString("id-ID")} dari maks ${maxStock.toLocaleString("id-ID")} item.`,
+      400,
+      { max: maxStock, live, remaining, attempted: result.items.length },
+    );
+  }
+
   const ts = now();
   // Insert dalam batch
   for (const it of result.items) {
@@ -285,14 +307,42 @@ app.post("/stock/upload", async (c) => {
 
 app.get("/:id/stock", async (c) => {
   const id = c.req.param("id");
-  const rs = await c.env.DB.prepare(
-    `SELECT id, payload_email, payload_password, payload_note, payload_expiry, payload_extra, status,
-            reserved_for_order_id, sold_to_order_id, created_at
-       FROM product_inventory_items WHERE product_id = ? ORDER BY created_at DESC LIMIT 500`,
-  )
-    .bind(id)
-    .all<any>();
-  return ok(c, rs.results ?? []);
+  const p = parsePagination({ query: (k) => c.req.query(k) });
+
+  const [rows, total, statsRows] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, payload_email, payload_password, payload_note, payload_expiry, payload_extra, status,
+              reserved_for_order_id, sold_to_order_id, created_at
+         FROM product_inventory_items WHERE product_id = ?
+        ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    )
+      .bind(id, p.pageSize, p.offset)
+      .all<any>(),
+    c.env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM product_inventory_items WHERE product_id = ?",
+    )
+      .bind(id)
+      .first<{ c: number }>(),
+    // Statistik dihitung lewat GROUP BY status sehingga selalu akurat,
+    // tidak terpengaruh pagination (bug lama: stats dihitung dari subset
+    // baris yang dibatasi LIMIT).
+    c.env.DB.prepare(
+      "SELECT status, COUNT(*) AS c FROM product_inventory_items WHERE product_id = ? GROUP BY status",
+    )
+      .bind(id)
+      .all<{ status: string; c: number }>(),
+  ]);
+
+  const stats = { total: 0, available: 0, reserved: 0, sold: 0, invalid: 0 };
+  for (const r of statsRows.results ?? []) {
+    const n = r.c ?? 0;
+    stats.total += n;
+    if (r.status === "available" || r.status === "reserved" || r.status === "sold" || r.status === "invalid") {
+      stats[r.status] = n;
+    }
+  }
+
+  return ok(c, { ...buildPage(rows.results ?? [], total?.c ?? 0, p), stats });
 });
 
 const MarkInvalidBody = z.object({ ids: z.array(z.string()).min(1).max(200) });

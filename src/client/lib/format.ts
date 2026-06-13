@@ -5,7 +5,17 @@ export function rupiah(cents: number): string {
 export function dateID(unix: number, opts?: Intl.DateTimeFormatOptions): string {
   if (!unix) return "-";
   const d = new Date(unix * 1000);
-  return d.toLocaleString("id-ID", opts ?? { dateStyle: "medium", timeStyle: "short" });
+  // Selalu format dalam zona Asia/Jakarta (WIB, GMT+7). Server menyimpan epoch
+  // UTC, jadi tampilan konsisten untuk semua user lepas dari zona browser.
+  const merged: Intl.DateTimeFormatOptions = {
+    ...(opts ?? { dateStyle: "medium", timeStyle: "short" }),
+    timeZone: "Asia/Jakarta",
+  };
+  const out = d.toLocaleString("id-ID", merged);
+  // Tambahkan label WIB hanya bila output memuat komponen jam.
+  const hasTime =
+    merged.timeStyle != null || merged.hour != null || merged.minute != null;
+  return hasTime ? `${out} WIB` : out;
 }
 
 export function relativeID(unix: number): string {

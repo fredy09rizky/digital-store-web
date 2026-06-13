@@ -7,7 +7,7 @@ import { now } from "../lib/time";
 import { nanoId } from "../lib/id";
 import { effectiveUnitPrice } from "../services/pricing";
 import { loadPriceContext } from "../services/product-helpers";
-import { MAX_QTY_PER_ITEM } from "../../shared/constants";
+import { CART_QTY_MAX } from "../../shared/constants";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -81,7 +81,7 @@ app.get("/", async (c) => {
 
 const AddBody = z.object({
   productId: z.string().min(1).max(64),
-  qty: z.coerce.number().int().min(1).max(MAX_QTY_PER_ITEM),
+  qty: z.coerce.number().int().min(1).max(CART_QTY_MAX),
 });
 
 app.post("/add", async (c) => {
@@ -124,7 +124,6 @@ app.post("/add", async (c) => {
       409,
     );
   }
-  if (newQty > MAX_QTY_PER_ITEM) return fail(c, "qty_limit", `Maksimal ${MAX_QTY_PER_ITEM} per item.`, 400);
 
   if (existing) {
     await c.env.DB.prepare("UPDATE cart_items SET qty = ?, updated_at = ? WHERE id = ?")
@@ -142,7 +141,7 @@ app.post("/add", async (c) => {
 
 const UpdateBody = z.object({
   itemId: z.string().min(1).max(64),
-  qty: z.coerce.number().int().min(1).max(MAX_QTY_PER_ITEM),
+  qty: z.coerce.number().int().min(1).max(CART_QTY_MAX),
 });
 
 app.post("/update", async (c) => {

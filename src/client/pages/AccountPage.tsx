@@ -23,6 +23,7 @@ import { Empty } from "../components/Empty";
 import { Button, LinkButton } from "../components/Button";
 import { Alert } from "../components/Alert";
 import { useBackdropClose, useModalEffects } from "../lib/hooks";
+import { validatePassword } from "@shared/constants";
 
 interface MeResp {
   id: string;
@@ -313,8 +314,9 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
   async function submit() {
     setErr(null);
-    if (newP.length < 8) {
-      setErr("Password baru minimal 8 karakter.");
+    const pErr = validatePassword(newP);
+    if (pErr) {
+      setErr(pErr);
       return;
     }
     setBusy(true);
@@ -395,7 +397,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
               <input
                 id="cp-new"
                 className="input !pl-9"
-                placeholder="Min 8 karakter"
+                placeholder="Min 10, huruf besar & kecil, angka, simbol"
                 type="password"
                 value={newP}
                 onChange={(e) => setNewP(e.target.value)}

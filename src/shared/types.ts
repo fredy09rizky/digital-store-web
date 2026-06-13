@@ -24,7 +24,6 @@ export interface PublicProductSummary {
   sku: string;
   slug: string;
   name: string;
-  shortDesc: string;
   thumbnailUrl: string | null;
   category: { id: string; slug: string; name: string };
   priceCents: number;

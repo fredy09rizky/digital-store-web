@@ -7,6 +7,17 @@ import { useToast } from "../components/Toast";
 import { Button } from "../components/Button";
 import { Alert } from "../components/Alert";
 import { useShake } from "../lib/hooks";
+import {
+  validateUsername,
+  validateEmail,
+  validatePassword,
+  validateDisplayName,
+  USERNAME_MIN,
+  USERNAME_MAX,
+  DISPLAY_NAME_MAX,
+  PASSWORD_MIN,
+  PASSWORD_MAX,
+} from "@shared/constants";
 
 export default function RegisterPage() {
   const [form, setForm] = useState({ username: "", email: "", password: "", displayName: "" });
@@ -18,19 +29,26 @@ export default function RegisterPage() {
   const toast = useToast();
   const { ref: cardRef, shake } = useShake<HTMLDivElement>();
 
-  const passOk = form.password.length >= 8;
-  const userOk = /^[a-zA-Z0-9_.\-]{3,24}$/.test(form.username);
+  // Indikator live untuk checklist syarat.
+  const userValid = validateUsername(form.username) === null;
+  const emailValid = validateEmail(form.email) === null;
+  const pwLen = form.password.length >= PASSWORD_MIN && form.password.length <= PASSWORD_MAX;
+  const pwCase = /[a-z]/.test(form.password) && /[A-Z]/.test(form.password);
+  const pwDigit = /[0-9]/.test(form.password);
+  const pwSymbol = /[@!#$%&*]/.test(form.password);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    if (!userOk) {
-      setErr("Username harus 3–24 karakter dan hanya huruf, angka, titik, garis bawah, atau strip.");
-      shake();
-      return;
-    }
-    if (!passOk) {
-      setErr("Password minimal 8 karakter.");
+    // Validasi klien memakai aturan yang sama dengan backend, agar pesannya
+    // konsisten dan spesifik. Backend tetap memvalidasi ulang.
+    const firstErr =
+      validateUsername(form.username) ||
+      validateEmail(form.email) ||
+      validatePassword(form.password) ||
+      (form.displayName ? validateDisplayName(form.displayName) : null);
+    if (firstErr) {
+      setErr(firstErr);
       shake();
       return;
     }
@@ -82,10 +100,10 @@ export default function RegisterPage() {
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
               required
-              minLength={3}
-              maxLength={24}
-              pattern="[a-zA-Z0-9_.\-]+"
-              placeholder="3–24 karakter"
+              minLength={USERNAME_MIN}
+              maxLength={USERNAME_MAX}
+              pattern="[a-zA-Z0-9_]+"
+              placeholder={`${USERNAME_MIN}–${USERNAME_MAX} karakter (huruf, angka, _)`}
               autoComplete="username"
             />
           </Field>
@@ -97,6 +115,7 @@ export default function RegisterPage() {
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
+              placeholder="Gmail, Outlook/Hotmail, Yahoo, iCloud, Proton"
               autoComplete="email"
             />
           </Field>
@@ -106,7 +125,8 @@ export default function RegisterPage() {
               className="input !pl-9"
               value={form.displayName}
               onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-              maxLength={60}
+              maxLength={DISPLAY_NAME_MAX}
+              placeholder={`Maks ${DISPLAY_NAME_MAX} karakter`}
             />
           </Field>
 
@@ -124,7 +144,8 @@ export default function RegisterPage() {
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 required
-                minLength={8}
+                minLength={PASSWORD_MIN}
+                maxLength={PASSWORD_MAX}
                 autoComplete="new-password"
               />
               <button
@@ -136,9 +157,13 @@ export default function RegisterPage() {
                 {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            <div className="mt-2 flex flex-wrap gap-3 text-xs">
-              <Requirement ok={passOk}>Minimal 8 karakter</Requirement>
-              <Requirement ok={userOk}>Username valid (huruf/angka/_.-)</Requirement>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5 text-xs">
+              <Requirement ok={userValid}>Username {USERNAME_MIN}–{USERNAME_MAX} (huruf, angka, _)</Requirement>
+              <Requirement ok={emailValid}>Email domain didukung</Requirement>
+              <Requirement ok={pwLen}>Password min {PASSWORD_MIN} karakter</Requirement>
+              <Requirement ok={pwCase}>Huruf besar &amp; kecil</Requirement>
+              <Requirement ok={pwDigit}>Angka</Requirement>
+              <Requirement ok={pwSymbol}>Simbol @ ! # $ % &amp; *</Requirement>
             </div>
           </div>
 

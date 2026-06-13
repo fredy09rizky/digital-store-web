@@ -134,7 +134,7 @@ export default function CartPage() {
             {cart.items.map((it) => {
               const stockShort = it.qty > it.stockAvailable;
               return (
-                <li key={it.id} className="p-3 sm:p-4 flex gap-3 items-start sm:items-center flex-wrap sm:flex-nowrap">
+                <li key={it.id} className="p-3 sm:p-4 flex flex-wrap sm:flex-nowrap gap-3 sm:items-center">
                   <Link to={`/p/${it.productSlug}`} className="size-16 sm:size-20 rounded-lg overflow-hidden bg-[var(--color-surface-tint)] shrink-0 border border-[var(--color-border)]">
                     {it.thumbnailUrl ? (
                       <img src={it.thumbnailUrl} className="size-full object-cover" alt="" />
@@ -161,7 +161,7 @@ export default function CartPage() {
                       </div>
                     )}
                   </div>
-                  <div className="ml-auto flex items-center gap-3 shrink-0">
+                  <div className="flex items-center justify-between gap-3 w-full sm:w-auto sm:ml-auto shrink-0">
                     <QtyControl
                       value={it.qty}
                       min={1}
@@ -238,21 +238,48 @@ function QtyControl({
   max: number;
   onChange: (q: number) => void;
 }) {
+  // Draft lokal supaya user bisa mengetik bebas (boleh kosong sementara).
+  // Commit ke server hanya saat blur / Enter — bukan tiap ketukan.
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  function commit() {
+    const n = parseInt(draft, 10);
+    // Kosong / 0 / tidak valid → kembalikan ke nilai semula (tidak boleh 0).
+    if (!Number.isFinite(n) || n < min) {
+      setDraft(String(value));
+      return;
+    }
+    // Clamp ke stok tersedia (tidak boleh melebihi stok).
+    const clamped = Math.min(max, Math.max(min, n));
+    setDraft(String(clamped));
+    if (clamped !== value) onChange(clamped);
+  }
+
+  function step(delta: number) {
+    const next = Math.min(max, Math.max(min, value + delta));
+    if (next !== value) onChange(next);
+  }
+
   return (
     <div className="inline-flex items-center bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden">
       <IconButton
         icon={Minus}
         label="Kurangi"
         size={14}
-        onClick={() => onChange(Math.max(min, value - 1))}
-        className="!size-9 !rounded-none hover:!bg-[var(--color-surface-soft)]"
+        onClick={() => step(-1)}
+        disabled={value <= min}
+        className="!size-[34px] !rounded-none hover:!bg-[var(--color-surface-soft)]"
       />
       <input
-        className="w-10 text-center bg-transparent outline-none text-sm font-bold text-[var(--color-ink)]"
-        value={value}
-        onChange={(e) => {
-          const v = Math.max(min, Math.min(max, parseInt(e.target.value || "1", 10) || min));
-          onChange(v);
+        className="w-14 text-center bg-transparent outline-none text-sm font-bold text-[var(--color-ink)] tabular-nums"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ""))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
         inputMode="numeric"
         aria-label="Kuantitas"
@@ -261,8 +288,9 @@ function QtyControl({
         icon={Plus}
         label="Tambah"
         size={14}
-        onClick={() => onChange(Math.min(max, value + 1))}
-        className="!size-9 !rounded-none hover:!bg-[var(--color-surface-soft)]"
+        onClick={() => step(1)}
+        disabled={value >= max}
+        className="!size-[34px] !rounded-none hover:!bg-[var(--color-surface-soft)]"
       />
     </div>
   );
