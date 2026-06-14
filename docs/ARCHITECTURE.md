@@ -151,21 +151,25 @@ Toggle `app_settings.maintenance_mode = '1'`. Middleware `blockOnMaintenance` di
 `scheduled` handler di `worker/index.ts` di-trigger oleh cron `* * * * *`:
 
 - Memanggil `expireAllDueOrders` untuk mengeluarkan order pending yang sudah lewat waktu, melepas reservasi, dan men-set payment expired.
-- Membersihkan `support_messages` untuk chat lama yang `cleanup_at` sudah lewat (back-compat: chat baru langsung dibersihkan saat ditutup admin, lihat di bawah).
-- Prune `audit_logs` yang lebih tua dari `app_settings.audit_log_retention_days` (default 365). Dibatasi 1.000 baris per tick agar tidak meledakkan D1 sekaligus. Set nilai `0` untuk menonaktifkan prune.
+- Menghapus **total** (baris chat + seluruh pesan) `support_chats` yang sudah `closed` dan melewati masa retensi. Retensi dibaca dinamis dari `app_settings.chat_retention_hours` (sah 24/48/72, default 24); cutoff dihitung `closed_at + retensi`, sehingga perubahan setting langsung berdampak ke chat closed yang ada.
+- Prune `audit_logs` yang lebih tua dari `app_settings.audit_log_retention_days`. Rentang sah 30–365 hari (default 30); nilai di luar rentang di-clamp. Prune **selalu** jalan (tidak ada opsi nonaktif), dibatasi 1.000 baris per tick agar tidak meledakkan D1 sekaligus.
 
 Saat dev (Miniflare), cron tidak otomatis. UI tetap self-heal: setiap kali list/detail order pending dibuka, `expireOrderIfDue` dipanggil.
 
-## Support chat lifecycle
+## Support chat & refund lifecycle
 
-Chat dibuat saat order paid atau saat user mengajukan refund. Saat admin menutup chat:
+Ada dua kanal chat yang memakai tabel yang sama (`support_chats.kind`):
 
-- Backend menghapus seluruh `support_messages` di chat tersebut secara langsung.
-- Status chat berubah ke `closed`, `closed_at` diisi sekarang, `cleanup_at` di-set NULL.
-- Satu pesan sistem ditambahkan: "Sesi chat ditutup oleh admin. Riwayat pesan sudah dihapus untuk privasi.". Tujuannya supaya user tidak bingung kenapa kotak percakapan tampak kosong.
-- Frontend admin meminta konfirmasi via dialog `ConfirmDialog` sebelum kirim request. Dialog menjelaskan eksplisit bahwa tindakan tidak dapat dibatalkan.
+- **`support`** — chat support umum di level akun (`order_id` NULL). Satu chat aktif per user, dibuat saat user mengirim pesan pertama dari halaman Bantuan.
+- **`refund`** — chat per order (`order_id` terisi, unik per order). Dibuat saat user menekan "Ajukan refund" di detail pesanan.
 
-Kebijakan ini menutup permukaan retensi data percakapan yang tidak perlu, sekaligus menjaga UX yang transparan. Untuk audit, admin dapat unduh log chat sebagai CSV **sebelum** menutup chat.
+Keputusan desain penting:
+
+- **Tidak ada auto-create saat order paid.** Ruang chat hanya dibuat saat benar-benar dibutuhkan, mengurangi data mati dan beban triase admin.
+- **Refund sekali per order.** `orders.refund_requested_at` ditandai saat pengajuan pertama dan tidak pernah direset. Aturan "sekali per order" tetap berlaku meskipun chat refund-nya sudah dihapus total oleh cron (mencegah pengajuan berulang setelah ditolak).
+- **Tutup chat tidak langsung menghapus.** Saat admin menutup, status jadi `closed`, `closed_at` diisi, satu pesan sistem ditambahkan, dan user tidak bisa membalas lagi. Admin **masih bisa** mengirim ke chat closed (catatan akhir / akun pengganti). Penghapusan total dilakukan cron setelah `chat_retention_hours`.
+- **`order_id` nullable.** Kolom dibuat nullable lewat rebuild tabel (migrasi 0011) supaya chat support umum bisa disimpan tanpa order. Unique index parsial `WHERE order_id IS NOT NULL` menjaga 1 chat refund per order tanpa mengganggu banyak baris support (`order_id` NULL).
+- **Validasi pesan** dipusatkan di `sanitizeChatBody` (`lib/validation.ts`): buang karakter kontrol (kecuali newline/tab), izinkan UTF-8 + emoji, potong ke maks 1000 karakter. Alasan refund maks 500 karakter.
 
 ## Wallet (debit & credit)
 
@@ -189,7 +193,7 @@ Audit log mencatat dua action berbeda (`admin.user.delete.hard` vs `admin.user.d
 
 ## Pagination admin list
 
-Helper `parsePagination` di `lib/pagination.ts` membaca `?page=&page_size=` dengan default 50, max 200, dan mengembalikan `{ page, pageSize, offset }`. Response standar `{ items, page, pageSize, total }` dipakai oleh `/admin/orders`, `/admin/users`, dan `/admin/dashboard/audit`. Admin UI memakai komponen `Pagination` ringan untuk navigasi.
+Helper `parsePagination` di `lib/pagination.ts` membaca `?page=&page_size=` dengan default 50, max 200, dan mengembalikan `{ page, pageSize, offset }`. Response standar `{ items, page, pageSize, total }` dipakai oleh `/admin/orders`, `/admin/users`, `/admin/dashboard/audit`, `/admin/support`, dan `/account/wallet/transactions` (mutasi saldo user, 20 per halaman). Admin UI & halaman Akun memakai komponen `Pagination` ringan untuk navigasi.
 
 Untuk admin list yang biasanya kecil (kategori, voucher, review pending, support open), pagination belum diterapkan agar UX tetap simpel. Kalau dataset bertumbuh, pola yang sama bisa di-port ke list itu.
 

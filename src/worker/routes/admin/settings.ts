@@ -25,13 +25,23 @@ const Body = z.object({
 const BOOL_KEYS = new Set(["maintenance_mode", "manual_bank_enabled"]);
 const INT_KEYS: Record<string, { min: number; max: number; label: string }> = {
   service_fee_cents: { min: 0, max: 100_000_000, label: "Biaya layanan" },
-  audit_log_retention_days: { min: 0, max: 3650, label: "Retensi audit log" },
+  audit_log_retention_days: { min: 30, max: 365, label: "Retensi audit log" },
   max_wallet_balance_cents: { min: 0, max: 1_000_000_000, label: "Batas saldo maksimal" },
+};
+// Key dengan nilai dari daftar tetap (enum).
+const ENUM_KEYS: Record<string, { values: string[]; label: string }> = {
+  chat_retention_hours: { values: ["24", "48", "72"], label: "Retensi chat" },
 };
 
 function validateSetting(key: string, value: string): string | null {
   if (BOOL_KEYS.has(key)) {
     if (value !== "0" && value !== "1") return "Nilai harus 0 atau 1.";
+    return null;
+  }
+  const enumRule = ENUM_KEYS[key];
+  if (enumRule) {
+    if (!enumRule.values.includes(value))
+      return `${enumRule.label} harus salah satu dari: ${enumRule.values.join(", ")}.`;
     return null;
   }
   const intRule = INT_KEYS[key];

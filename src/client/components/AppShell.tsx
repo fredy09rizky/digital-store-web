@@ -23,6 +23,8 @@ import {
   Wrench,
   ScrollText,
   Gem,
+  LifeBuoy,
+  Settings,
 } from "lucide-react";
 import { useApp } from "../state/AppProviders";
 import { api } from "../lib/api";
@@ -134,7 +136,7 @@ function UserShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="ml-auto lg:ml-1 flex items-center gap-2">
-            <ThemeToggle className="hidden sm:inline-grid" />
+            <ThemeToggle />
             {boot?.user ? (
               <Link
                 to="/akun"
@@ -216,11 +218,7 @@ function UserShell({ children }: { children: React.ReactNode }) {
                 <DrawerLink to="/keranjang" icon={ShoppingCart} label="Keranjang" badge={cartCount} />
                 {boot?.user && <DrawerLink to="/akun/pesanan" icon={Receipt} label="Pesanan" />}
                 {boot?.user && <DrawerLink to="/akun" icon={User} label="Akun" />}
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <span className="text-xs text-[var(--color-ink-2)]">Tampilan</span>
-                <ThemeToggle />
+                {boot?.user && <DrawerLink to="/akun/support" icon={LifeBuoy} label="Bantuan" />}
               </div>
 
               {boot?.user ? (
@@ -289,6 +287,14 @@ function UserShell({ children }: { children: React.ReactNode }) {
               Akun diverifikasi sebelum tampil. Refund disetujui admin masuk ke saldo. Garansi
               sesuai catatan tiap produk.
             </p>
+            {boot?.user && (
+              <Link
+                to="/akun/support"
+                className="mt-3 inline-flex items-center gap-1.5 text-[var(--color-brand-700)] font-semibold hover:underline"
+              >
+                <LifeBuoy size={14} /> Hubungi support
+              </Link>
+            )}
           </div>
         </div>
         <div className="border-t border-[var(--color-border)]">
@@ -435,7 +441,7 @@ const ADMIN_NAVS: { to: string; icon: React.ComponentType<{ size?: number; class
   { to: "/admin/voucher", icon: Ticket, label: "Voucher" },
   { to: "/admin/review", icon: Star, label: "Review" },
   { to: "/admin/support", icon: MessageCircle, label: "Support" },
-  { to: "/admin/maintenance", icon: Wrench, label: "Maintenance" },
+  { to: "/admin/maintenance", icon: Settings, label: "Pengaturan" },
   { to: "/admin/audit", icon: ScrollText, label: "Audit Log" },
 ];
 

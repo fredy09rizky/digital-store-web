@@ -134,7 +134,7 @@ export default function PaymentPage() {
 
   if (!order) return <Loading label="Memuat detail pembayaran…" />;
 
-  const isTopUp = order.notes === "Top up saldo";
+  const isTopUp = order.kind === "topup";
 
   return (
     <div className="grid lg:grid-cols-[1fr_360px] gap-5">

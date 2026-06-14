@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Calendar,
@@ -48,9 +48,12 @@ const STATUS_INFO: Record<
 
 export default function OrderDetailPage() {
   const { idOrCode } = useParams();
+  const nav = useNavigate();
   const [o, setO] = useState<OrderDetail | null>(null);
   const [refundOpen, setRefundOpen] = useState(false);
+  const [refundInfoOpen, setRefundInfoOpen] = useState(false);
   const [refundReason, setRefundReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [reviewState, setReviewState] = useState<{
     open: boolean;
     productId: string | null;
@@ -75,15 +78,20 @@ export default function OrderDetailPage() {
       toast.error("Alasan minimal 5 karakter.");
       return;
     }
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await api(`/account/refund-request`, {
-        body: { orderId: o!.id, reason: refundReason },
+        body: { orderId: o!.id, reason: refundReason.trim() },
       });
       setRefundOpen(false);
-      toast.success("Permintaan refund terkirim ke admin via support chat.");
-      load();
+      toast.success("Permintaan refund terkirim ke admin.");
+      // Chat refund baru saja dibuat → arahkan ke ruang chat.
+      nav(`/akun/pesanan/${o!.code}/chat`);
     } catch (e: any) {
       toast.error(e?.message ?? "Gagal mengirim refund.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -195,20 +203,29 @@ export default function OrderDetailPage() {
               Unduh invoice
             </LinkButton>
           )}
-          {o.supportChat && (
-            <LinkButton
-              to={`/akun/pesanan/${o.code}/chat`}
-              variant={o.supportChat.status === "closed" ? "ghost" : "outline"}
-              icon={MessageCircle}
-            >
-              {o.supportChat.status === "closed" ? "Chat (ditutup)" : "Chat support"}
-            </LinkButton>
-          )}
-          {o.status === "paid" && (
-            <Button variant="ghost" icon={RotateCcw} onClick={() => setRefundOpen(true)}>
-              Ajukan refund
-            </Button>
-          )}
+          {/* Refund: hanya untuk order pembelian yang sudah lunas.
+              - Belum pernah diajukan → buka form.
+              - Sudah diajukan & chat masih ada → masuk ke chat refund.
+              - Sudah diajukan & chat sudah ditutup/dihapus → info popup. */}
+          {o.status === "paid" &&
+            o.kind !== "topup" &&
+            (!o.refundRequestedAt ? (
+              <Button variant="ghost" icon={RotateCcw} onClick={() => setRefundOpen(true)}>
+                Ajukan refund
+              </Button>
+            ) : o.refundChat ? (
+              <LinkButton
+                to={`/akun/pesanan/${o.code}/chat`}
+                variant="outline"
+                icon={MessageCircle}
+              >
+                Lihat chat refund
+              </LinkButton>
+            ) : (
+              <Button variant="ghost" icon={RotateCcw} onClick={() => setRefundInfoOpen(true)}>
+                Status refund
+              </Button>
+            ))}
           {o.reviewable
             .filter((r) => !r.reviewed)
             .map((r) => (
@@ -229,22 +246,37 @@ export default function OrderDetailPage() {
       {refundOpen && (
         <Modal onClose={() => setRefundOpen(false)} title="Ajukan refund" icon={RotateCcw}>
           <p className="text-sm text-[var(--color-ink-2)] mb-3">
-            Permintaan akan diteruskan ke admin via support chat. Refund yang disetujui masuk ke
-            saldo akun.
+            Refund hanya bisa diajukan <span className="font-semibold">satu kali</span> per pesanan.
+            Permintaan diteruskan ke admin lewat chat refund. Refund yang disetujui masuk ke saldo
+            akun.
           </p>
           <textarea
             className="textarea"
             value={refundReason}
             onChange={(e) => setRefundReason(e.target.value)}
-            placeholder="Jelaskan alasan refund secara singkat dan jelas (min 5 karakter)."
+            placeholder="Jelaskan alasan refund secara singkat dan jelas (5-500 karakter)."
             maxLength={500}
           />
           <div className="flex gap-2 justify-end mt-4">
-            <Button variant="ghost" onClick={() => setRefundOpen(false)}>
+            <Button variant="ghost" onClick={() => setRefundOpen(false)} disabled={submitting}>
               Batal
             </Button>
-            <Button onClick={submitRefund} icon={MessageCircle}>
+            <Button onClick={submitRefund} icon={MessageCircle} loading={submitting}>
               Kirim ke admin
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {refundInfoOpen && (
+        <Modal onClose={() => setRefundInfoOpen(false)} title="Refund tidak bisa diajukan lagi" icon={RotateCcw}>
+          <p className="text-sm text-[var(--color-ink-2)] mb-4">
+            Refund untuk pesanan ini sudah pernah diajukan sebelumnya dan sesi chatnya sudah ditutup
+            admin. Permintaan refund baru tidak bisa dilakukan untuk pesanan yang sama. Jika masih
+            ada kendala lain, gunakan menu <span className="font-semibold">Bantuan</span> di akun.
+          </p>
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={() => setRefundInfoOpen(false)}>
+              Mengerti
             </Button>
           </div>
         </Modal>

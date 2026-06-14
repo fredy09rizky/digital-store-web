@@ -261,7 +261,7 @@ Pemisahan kanal (penting, jangan dicampur):
   salah, kirim chat gagal, ganti password gagal) → **`Alert` inline** di dekat
   konteks (di atas/dalam form) + `useShake` pada kartu form. Tidak hilang sendiri,
   `role="alert"`, auto-focus. Sudah dipakai di: `LoginPage`, `RegisterPage`,
-  `CheckoutPage`, `AccountPage` (modal password), `AdminLogin`, `SupportChatPage`.
+  `CheckoutPage`, `AccountPage` (modal password), `AdminLogin`, `ChatRoom`.
 - **Feedback ringan / non-blocking** (sukses login, item ke keranjang, tersalin,
   tersimpan) → **toast** (`useToast`).
 

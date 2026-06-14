@@ -16,7 +16,10 @@ const app = new Hono<AppContext>({ strict: false });
 app.get("/", async (c) => {
   const user = c.get("user")!;
   const status = c.req.query("status");
-  const where = ["o.user_id = ?"];
+  // Top up (kind='topup') sengaja disembunyikan dari daftar pesanan — sudah
+  // tercatat lengkap di Mutasi saldo. Order pseudo top up tetap ada di DB
+  // untuk halaman pembayaran/sukses, tapi bukan "pesanan" dari sisi user.
+  const where = ["o.user_id = ?", "o.kind != 'topup'"];
   const binds: any[] = [user.id];
   if (status) {
     where.push("o.status = ?");
@@ -90,7 +93,7 @@ async function loadOrderDetail(env: AppContext["Bindings"], userId: string, idOr
     )
       .bind(o.id, userId, o.id)
       .all<{ product_id: string; product_name: string; reviewed: number | null }>(),
-    env.DB.prepare("SELECT id, status FROM support_chats WHERE order_id = ?")
+    env.DB.prepare("SELECT id, status FROM support_chats WHERE order_id = ? AND kind = 'refund'")
       .bind(o.id)
       .first<{ id: string; status: string }>(),
   ]);
@@ -99,6 +102,7 @@ async function loadOrderDetail(env: AppContext["Bindings"], userId: string, idOr
     id: o.id,
     code: o.code,
     status: o.status,
+    kind: o.kind,
     paymentMethod: o.payment_method,
     subtotalCents: o.subtotal_cents,
     discountCents: o.discount_cents,
@@ -141,7 +145,8 @@ async function loadOrderDetail(env: AppContext["Bindings"], userId: string, idOr
       payloadExpiry: d.payload_expiry,
       payloadExtra: d.payload_extra,
     })),
-    supportChat: chat ? { id: chat.id, status: chat.status } : null,
+    refundChat: chat ? { id: chat.id, status: chat.status } : null,
+    refundRequestedAt: o.refund_requested_at ?? null,
     reviewable: (reviewables.results ?? []).map((x) => ({
       productId: x.product_id,
       productName: x.product_name,

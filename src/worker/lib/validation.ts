@@ -14,6 +14,22 @@ export function containsEmoji(value: string): boolean {
 /** Pesan standar penolakan emoji. */
 export const NO_EMOJI_MSG = "Teks tidak boleh mengandung emoji.";
 
+// ============================================================
+//  Sanitasi isi chat (support & refund).
+// ============================================================
+// Chat MEMPERBOLEHKAN teks normal (UTF-8) dan emoji. Yang dibuang hanyalah
+// karakter kontrol berbahaya (NUL, dsb.) kecuali newline (\n) dan tab (\t).
+// Hasil di-trim, lalu dipotong ke maksimal CHAT_MSG_MAX karakter.
+export const CHAT_MSG_MAX = 1000;
+
+export function sanitizeChatBody(input: string): string {
+  // Buang control chars C0 (kecuali \t \n) dan DEL.
+  const cleaned = input
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  return cleaned.trim().slice(0, CHAT_MSG_MAX);
+}
+
 /**
  * Predikat untuk Zod `.refine(...)`. Mengembalikan true (valid) bila nilai
  * bukan string atau tidak mengandung emoji. Aman dipakai pada field

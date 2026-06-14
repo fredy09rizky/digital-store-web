@@ -109,55 +109,55 @@ export default {
     try {
       await expireAllDueOrders(env);
 
-      // Cleanup pesan support chat yang sudah lewat cleanup_at.
-      // cleanup_at di-set NULL setelah dibersihkan supaya cron berikutnya
-      // tidak menjalankan DELETE berulang untuk chat yang sama. Ini hanya
-      // berlaku untuk data lama; chat baru langsung dibersihkan saat ditutup
-      // (lihat admin support close handler).
+      // Hapus total chat yang sudah ditutup (closed) dan melewati masa retensi.
+      // Masa retensi dibaca dinamis dari app_settings.chat_retention_hours
+      // (sah: 24/48/72, default 24). Karena dihitung dari closed_at + retensi,
+      // perubahan setting langsung berdampak ke chat closed yang sudah ada.
       const t = Math.floor(Date.now() / 1000);
+      const retHoursRow = await env.DB.prepare(
+        "SELECT value FROM app_settings WHERE key = 'chat_retention_hours'",
+      ).first<{ value: string }>();
+      let retHours = parseInt(retHoursRow?.value ?? "24", 10);
+      if (![24, 48, 72].includes(retHours)) retHours = 24;
+      const chatCutoff = t - retHours * 3600;
       const expired = await env.DB.prepare(
-        "SELECT id FROM support_chats WHERE cleanup_at IS NOT NULL AND cleanup_at <= ?",
+        "SELECT id FROM support_chats WHERE status = 'closed' AND closed_at IS NOT NULL AND closed_at <= ?",
       )
-        .bind(t)
+        .bind(chatCutoff)
         .all<{ id: string }>();
       let cleanedChats = 0;
       const ids = (expired.results ?? []).map((r) => r.id);
       if (ids.length > 0) {
         const stmts: D1PreparedStatement[] = [];
         for (const id of ids) {
+          // Hapus pesan lalu hapus baris chat → chat hilang total di kedua sisi.
           stmts.push(env.DB.prepare("DELETE FROM support_messages WHERE chat_id = ?").bind(id));
-          stmts.push(
-            env.DB
-              .prepare("UPDATE support_chats SET cleanup_at = NULL, updated_at = ? WHERE id = ?")
-              .bind(t, id),
-          );
+          stmts.push(env.DB.prepare("DELETE FROM support_chats WHERE id = ?").bind(id));
         }
         await env.DB.batch(stmts);
         cleanedChats = ids.length;
       }
 
-      // Prune audit_logs sesuai retensi. Default 365 hari, bisa diatur admin
-      // lewat app_settings.audit_log_retention_days. Setting <= 0 = no-op
-      // (matikan prune). Per tick maksimal 1000 baris dihapus agar
-      // perlahan-lahan saja, tidak membanjiri D1 satu kali.
+      // Prune audit_logs sesuai retensi. Rentang sah 30-365 hari (default 30).
+      // Prune SELALU jalan (tidak ada opsi nonaktif). Per tick maksimal 1000
+      // baris dihapus agar tidak membanjiri D1 sekaligus.
       const retSetting = await env.DB.prepare(
         "SELECT value FROM app_settings WHERE key = 'audit_log_retention_days'",
       ).first<{ value: string }>();
-      const retDays = parseInt(retSetting?.value ?? "365", 10);
-      let prunedAudit = 0;
-      if (Number.isFinite(retDays) && retDays > 0) {
-        const cutoff = t - retDays * 86400;
-        const r = await env.DB.prepare(
-          `DELETE FROM audit_logs
-            WHERE id IN (
-              SELECT id FROM audit_logs WHERE created_at < ? LIMIT 1000
-            )`,
-        )
-          .bind(cutoff)
-          .run();
-        // @ts-ignore meta exists
-        prunedAudit = r.meta?.changes ?? 0;
-      }
+      let retDays = parseInt(retSetting?.value ?? "30", 10);
+      if (!Number.isFinite(retDays)) retDays = 30;
+      retDays = Math.min(365, Math.max(30, retDays));
+      const cutoff = t - retDays * 86400;
+      const r = await env.DB.prepare(
+        `DELETE FROM audit_logs
+          WHERE id IN (
+            SELECT id FROM audit_logs WHERE created_at < ? LIMIT 1000
+          )`,
+      )
+        .bind(cutoff)
+        .run();
+      // @ts-ignore meta exists
+      const prunedAudit = r.meta?.changes ?? 0;
 
       log.info({
         event: "cron.tick",

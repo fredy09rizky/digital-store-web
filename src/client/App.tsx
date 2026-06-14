@@ -17,6 +17,7 @@ const AccountPage = lazy(() => import("./pages/AccountPage"));
 const OrdersPage = lazy(() => import("./pages/OrdersPage"));
 const OrderDetailPage = lazy(() => import("./pages/OrderDetailPage"));
 const SupportChatPage = lazy(() => import("./pages/SupportChatPage"));
+const SupportGeneralPage = lazy(() => import("./pages/SupportGeneralPage"));
 const InvoicePage = lazy(() => import("./pages/InvoicePage"));
 
 const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/pembayaran/:idOrCode" element={<ProtectedRoute><PaymentPage /></ProtectedRoute>} />
             <Route path="/sukses/:idOrCode" element={<ProtectedRoute><OrderSuccessPage /></ProtectedRoute>} />
             <Route path="/akun" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
+            <Route path="/akun/support" element={<ProtectedRoute><SupportGeneralPage /></ProtectedRoute>} />
             <Route path="/akun/pesanan" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
             <Route path="/akun/pesanan/:idOrCode" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
             <Route path="/akun/pesanan/:idOrCode/chat" element={<ProtectedRoute><SupportChatPage /></ProtectedRoute>} />
@@ -126,7 +128,7 @@ function NotFound() {
         <Link to="/akun/pesanan" className="btn-ghost">Pesanan saya</Link>
       </div>
       <p className="text-xs text-[var(--color-ink-3)] mt-8">
-        Butuh bantuan? Buka chat support pada salah satu order aktif kamu.
+        Butuh bantuan? Buka menu Bantuan di halaman akun kamu.
       </p>
     </div>
   );

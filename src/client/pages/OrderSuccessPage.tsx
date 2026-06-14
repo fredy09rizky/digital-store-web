@@ -37,7 +37,7 @@ export default function OrderSuccessPage() {
   }, [idOrCode, refreshBoot]);
 
   if (!order) return <Loading label="Memuat detail order…" />;
-  const isTopUp = order.notes === "Top up saldo";
+  const isTopUp = order.kind === "topup";
 
   return (
     <div className="max-w-2xl mx-auto space-y-4 animate-fade-in">

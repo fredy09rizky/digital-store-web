@@ -385,7 +385,7 @@ export async function markOrderPaid(
 
   // Ambil order saat ini
   const current = await env.DB.prepare(
-    "SELECT id, user_id, status, total_cents, payment_method, voucher_id FROM orders WHERE id = ?",
+    "SELECT id, user_id, status, total_cents, payment_method, voucher_id, kind FROM orders WHERE id = ?",
   )
     .bind(orderId)
     .first<{
@@ -395,6 +395,7 @@ export async function markOrderPaid(
       total_cents: number;
       payment_method: string;
       voucher_id: string | null;
+      kind: string;
     }>();
   if (!current) throw new OrderError("not_found", "Order tidak ditemukan.", 404);
   if (current.status === "paid") return { alreadyPaid: true };
@@ -448,21 +449,10 @@ export async function markOrderPaid(
     .bind(ts, orderId)
     .run();
 
-  // Top-up saldo: order khusus tanpa order_items dengan notes 'Top up saldo'.
+  // Top-up saldo: order khusus tanpa order_items dengan kind='topup'.
   // Karena CAS di atas memastikan branch ini hanya jalan SEKALI per order,
   // kredit saldo aman dari double-credit (tidak idempotent berulang).
-  const topupCheck = await env.DB.prepare(
-    `SELECT
-        (SELECT COUNT(*) FROM order_items WHERE order_id = ?) AS items,
-        notes
-       FROM orders WHERE id = ?`,
-  )
-    .bind(orderId, orderId)
-    .first<{ items: number; notes: string | null }>();
-  const isTopup =
-    topupCheck != null &&
-    topupCheck.items === 0 &&
-    (topupCheck.notes ?? "").toLowerCase().includes("top up");
+  const isTopup = current.kind === "topup";
   if (isTopup) {
     await creditWallet(env, current.user_id, current.total_cents, {
       kind: "topup",
@@ -501,15 +491,10 @@ export async function markOrderPaid(
     }
   }
 
-  // Open support chat slot (skip untuk top-up karena tidak ada produk yang perlu didiskusikan)
-  if (!isTopup) {
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO support_chats (id, order_id, user_id, status, created_at, updated_at)
-       VALUES (?, ?, ?, 'open', ?, ?)`,
-    )
-      .bind(nanoId("sc"), orderId, current.user_id, ts, ts)
-      .run();
-  }
+  // Catatan: chat support TIDAK lagi dibuat otomatis saat order paid. Ruang
+  // chat hanya dibuat saat user benar-benar membutuhkannya (klik "Ajukan
+  // refund" untuk chat refund per-order, atau membuka Bantuan untuk chat
+  // support umum di level akun).
 
   await audit(env, {
     actorKind: ctx.source === "manual_admin" ? "admin" : "system",

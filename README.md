@@ -21,7 +21,7 @@ Web store fullstack untuk menjual akun premium dan item digital lainnya, dibangu
 13. [Voucher & harga spesial](#voucher--harga-spesial)
 14. [Saldo internal & refund](#saldo-internal--refund)
 15. [Review & rating](#review--rating)
-16. [Support chat per order](#support-chat-per-order)
+16. [Support chat & refund](#support-chat--refund)
 17. [Admin panel](#admin-panel)
 18. [Maintenance mode](#maintenance-mode)
 19. [Penghapusan user](#penghapusan-user)
@@ -43,8 +43,8 @@ Web store fullstack untuk menjual akun premium dan item digital lainnya, dibangu
 - 🧾 Pembayaran via QRIS / transfer bank manual / saldo internal. Provider abstraction siap pasang Pakasir.
 - 🧠 Voucher fleksibel (segmen, persen/nominal, kuota total & per user, scope all/category/product), tidak tumpang dengan harga spesial.
 - 💸 Saldo internal (top up QRIS, refund admin, adjustment), semua mutasi tercatat.
-- 💬 Support chat per order, riwayat dihapus instan saat admin menutup sesi (dengan dialog konfirmasi), log dapat di-export CSV sebelum ditutup.
-- 🧹 Cron tiap menit: auto-expire order pending, cleanup chat lama (legacy), dan prune audit log sesuai retensi.
+- 💬 Dua kanal chat: **support umum** (level akun, bebas tanya apa saja, tidak terikat order) dan **chat refund** (per order, otomatis dibuat saat user mengajukan refund). Ruang chat hanya dibuat saat dibutuhkan. Saat admin menutup chat, riwayat dihapus total otomatis oleh cron setelah masa retensi (24/48/72 jam, diatur admin). Admin punya pencarian + pagination dan bisa export CSV.
+- 🧹 Cron tiap menit: auto-expire order pending, hapus total chat yang sudah ditutup melewati masa retensi, dan prune audit log sesuai retensi.
 - 📱 UI responsive & premium (design system **"Aurora Noir"**: aksen iris/violet, tipografi Space Grotesk + Inter + JetBrains Mono) dengan **dark mode** (toggle + ikut sistem) dan microinteraction halus. Detail di [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
 - 🕒 Semua tanggal/waktu ditampilkan dalam zona **Asia/Jakarta (WIB, GMT+7)** dengan label "WIB" pada tampilan berjam. Invoice memakai warna tetap (light) saat dicetak/Save as PDF, tidak ikut dark mode.
 
@@ -291,6 +291,7 @@ Migrasi yang tersedia:
 - `0008_drop_product_badges.sql` — hapus kolom `products.badges` (label promo manual yang tidak pernah dirender; label visual −X%/READY/LARIS dihitung otomatis dari data).
 - `0009_max_wallet_balance.sql` — default setting `max_wallet_balance_cents` (batas saldo maksimal user, default Rp1.000.000; `0` = tanpa batas).
 - `0010_drop_short_desc.sql` — hapus kolom `products.short_desc`. Deskripsi singkat & lengkap disatukan jadi satu field **Deskripsi** (maks 2000 karakter). Pencarian katalog kini memakai kolom `description`.
+- `0011_chat_and_order_rework.sql` — (a) tambah `orders.kind` (`purchase`/`topup`) + `orders.refund_requested_at`; top up disembunyikan dari daftar pesanan dan tidak bisa direfund; (b) rebuild `support_chats`: `order_id` jadi nullable + kolom `kind` (`refund`/`support`), hapus `cleanup_at`, data chat lama dikosongkan; (c) setting `chat_retention_hours` (default 24) dan `audit_log_retention_days` dipaksa ke 30.
 
 ---
 
@@ -346,8 +347,8 @@ Catatan deployment:
 
 ### 5. Setelah pembelian
 
-- Akun saya: profil, saldo, mutasi, daftar order, detail order, invoice, chat support, pengajuan refund, review.
-- Refund: user mengajukan via tombol di order detail; backend membuka chat support dan mengirim pesan otomatis. Admin dapat menyetujui yang masuk ke saldo, atau mengirim akun pengganti via chat.
+- Akun saya: profil, saldo, mutasi, daftar order, detail order, invoice, bantuan/support, pengajuan refund, review.
+- Refund: user mengajukan via tombol di order detail (sekali per order); backend membuka chat refund khusus order itu dan mengirim pesan otomatis. Admin dapat menyetujui yang masuk ke saldo, atau mengirim akun pengganti via chat.
 - Review: hanya pembeli yang berhak. Maksimal 2 foto, 2MB per foto, status pending menunggu moderasi admin.
 
 ### Identitas user: username vs nama tampilan
@@ -482,9 +483,10 @@ Harga spesial / tier:
 ## Saldo internal & refund
 
 - Saldo di-store di `users.balance_cents` plus tabel append-only `wallet_transactions` untuk audit trail.
-- Top-up: user pilih nominal, sistem buat order khusus (`notes='Top up saldo'`) dan provider QRIS yang sama. Setelah sukses, kredit otomatis masuk.
+- Top-up: user pilih nominal, sistem buat order khusus (`kind='topup'`) lewat provider QRIS yang sama. Setelah sukses, kredit otomatis masuk. Order top up **disembunyikan dari daftar pesanan** (sudah tercatat di mutasi saldo) dan **tidak bisa direfund** (tidak ada produk; refund hanya untuk pembelian).
 - Refund:
-  - User mengajukan refund via order detail → otomatis membuka chat support dan mengirim pesan otomatis.
+  - User mengajukan refund via order detail. Refund hanya bisa diajukan **satu kali per order** — saat diajukan, sistem menandai `orders.refund_requested_at` dan membuka **chat refund** khusus order itu (mengirim pesan `[REFUND REQUEST]` otomatis), lalu user diarahkan ke chat tersebut.
+  - Klik berikutnya di order yang sama: bila chat masih ada → masuk ke chat refund; bila admin sudah menutup & chat sudah dihapus → muncul info bahwa refund tidak bisa diajukan lagi.
   - Admin di order detail bisa klik tombol Refund (dengan konfirmasi password admin) → status order ke `refunded` dan saldo user dikredit.
   - Alternatif: admin kirim akun pengganti lewat chat tanpa refund.
 
@@ -507,14 +509,22 @@ Aturan saldo:
 
 ---
 
-## Support chat per order
+## Support chat & refund
 
-- Satu chat per order, otomatis dibuat saat order paid atau saat user mengajukan refund.
-- Saat chat ditutup admin, **seluruh riwayat pesan langsung dihapus**. UI menyisakan satu pesan sistem yang menjelaskan bahwa sesi sudah ditutup dan riwayat dibersihkan, supaya user tidak bingung kenapa kotak chat tampak kosong.
-- Admin diminta konfirmasi via dialog sebelum tutup chat untuk mencegah ketidaksengajaan.
-- Admin bisa download log chat sebagai CSV **sebelum** menutup chat. Setelah tutup, isi pesan tidak bisa dipulihkan.
-- User tidak bisa kirim chat lagi pada order yang ditutup; harus ada order baru.
-- Cron tetap menyapu data lama yang masih punya `cleanup_at` (chat yang ditutup sebelum perubahan ini), supaya tidak ada riwayat tertinggal.
+Ada **dua kanal chat** yang terpisah:
+
+1. **Chat support umum** — di level akun (`/akun/support`), tidak terikat order. User bisa bertanya apa saja (produk, kendala, dll). Satu chat aktif per user.
+2. **Chat refund** — per order, dibuat otomatis saat user mengajukan refund dari detail pesanan. Berisi pesan `[REFUND REQUEST]` + alasan.
+
+Aturan umum:
+
+- **Ruang chat tidak lagi dibuat otomatis saat order paid.** Chat hanya lahir saat dibutuhkan (user buka Bantuan, atau ajukan refund). Ini mengurangi sampah data dan beban admin.
+- Penempatan menu support umum di sisi user: tombol **Bantuan** di halaman Akun, link di drawer mobile, dan link di footer.
+- **Tutup percakapan**: saat admin menutup chat, statusnya jadi `closed`, user **tidak bisa membalas lagi** dan melihat pesan sistem "Chat telah ditutup oleh admin. Riwayat chat akan segera dihapus otomatis oleh sistem." **Admin masih bisa mengirim** (mis. catatan akhir / akun pengganti).
+- **Hapus total otomatis**: cron menghapus seluruh chat + pesan yang sudah `closed` setelah masa retensi **`chat_retention_hours`** (24/48/72 jam, default 24, diatur dari Admin Panel > Pengaturan). Setelah dihapus, chat hilang di kedua sisi.
+- **Validasi**: pesan chat maks **1000 karakter** (UTF-8 + emoji diizinkan, karakter kontrol dibuang); alasan refund maks **500 karakter**.
+- **Input**: `Enter` mengirim pesan; `Shift+Enter`, `Ctrl+Enter` (Windows), atau `Cmd+Enter` (Mac) membuat baris baru.
+- **Admin**: halaman Support punya **pencarian** (username atau kode order) + **pagination**, label jenis chat (Refund · ORD-xxxx / Support umum), dan unduh log CSV.
 
 ---
 
@@ -537,8 +547,8 @@ Fitur admin:
 - User: filter, nonaktifkan, aktifkan, hapus permanen / soft delete (lihat [Penghapusan user](#penghapusan-user)), reset password, sesuaikan saldo (dengan ack password admin).
 - Voucher: CRUD penuh dengan kalender aktif.
 - Review: moderasi approve/reject/spam/hapus.
-- Support: list chat, balas, tutup, unduh log CSV.
-- Maintenance: toggle on/off, edit pesan banner, biaya layanan, batas saldo maksimal user, dan retensi audit log (hari).
+- Support: list chat (support umum + refund) dengan **pencarian** (username / kode order) & **pagination**, balas, tutup, unduh log CSV. Admin tetap bisa membalas chat yang sudah ditutup.
+- Pengaturan (sebelumnya "Maintenance"): toggle maintenance + pesan banner, biaya layanan, batas saldo maksimal user, **retensi chat** (24/48/72 jam), dan **retensi audit log** (30–365 hari).
 - Audit log: filter by action.
 - Laporan: download `/api/admin/dashboard/reports/transactions.csv`.
 
@@ -546,7 +556,7 @@ Fitur admin:
 
 ## Maintenance mode
 
-- Toggle dari halaman `/admin/maintenance`.
+- Toggle dari halaman Pengaturan (`/admin/maintenance`, di sidebar bernama **Pengaturan**).
 - Saat aktif:
   - Banner kuning di seluruh halaman.
   - Endpoint `/api/checkout/*` mengembalikan 503 dengan kode `maintenance`.
@@ -645,8 +655,8 @@ Semua aksi penting dicatat ke `audit_logs`:
 Aturan retensi:
 
 - Order final >30 hari dapat dihapus permanen via tombol admin.
-- Pesan support chat dihapus instan saat admin menutup sesi (admin diminta konfirmasi terlebih dulu). Chat yang ditutup sebelum perubahan ini dibersihkan oleh cron sesuai `cleanup_at` lama.
-- Audit log otomatis di-prune oleh cron sesuai setting `audit_log_retention_days` (default 365 hari, dapat diubah dari Admin Panel > Pengaturan Sistem). Set `0` untuk menyimpan selamanya.
+- Chat (support umum & refund) yang sudah ditutup admin dihapus **total** oleh cron setelah `chat_retention_hours` (24/48/72 jam, default 24).
+- Audit log otomatis di-prune oleh cron sesuai setting `audit_log_retention_days` (default **30 hari**, rentang **30–365**, diubah dari Admin Panel > Pengaturan). Prune selalu aktif (tidak bisa dinonaktifkan).
 
 ---
 
@@ -662,7 +672,7 @@ User:
 - `/checkout`
 - `/pembayaran/:idOrCode`
 - `/sukses/:idOrCode`
-- `/akun`, `/akun/pesanan`, `/akun/pesanan/:idOrCode`, `/akun/pesanan/:idOrCode/chat`, `/akun/pesanan/:idOrCode/invoice`
+- `/akun`, `/akun/support`, `/akun/pesanan`, `/akun/pesanan/:idOrCode`, `/akun/pesanan/:idOrCode/chat`, `/akun/pesanan/:idOrCode/invoice`
 
 Admin:
 
@@ -671,7 +681,7 @@ Admin:
 - `/admin/produk`, `/admin/kategori`, `/admin/stok/:productId`
 - `/admin/order`, `/admin/order/:idOrCode` (detail order), `/admin/user`
 - `/admin/voucher`, `/admin/review`, `/admin/support`
-- `/admin/maintenance`, `/admin/audit`
+- `/admin/maintenance` (sidebar: **Pengaturan**), `/admin/audit`
 
 ---
 

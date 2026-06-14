@@ -13,6 +13,7 @@ import {
   Power,
   ScrollText,
   Wallet,
+  MessagesSquare,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useToast } from "../../components/Toast";
@@ -30,6 +31,7 @@ interface Settings {
   manual_bank_note?: string;
   audit_log_retention_days?: string;
   max_wallet_balance_cents?: string;
+  chat_retention_hours?: string;
 }
 
 export default function AdminMaintenance() {
@@ -351,24 +353,65 @@ export default function AdminMaintenance() {
             id="set-retention"
             className="input tabular-nums"
             type="number"
-            min={0}
-            max={3650}
-            value={s.audit_log_retention_days ?? "365"}
+            min={30}
+            max={365}
+            value={s.audit_log_retention_days ?? "30"}
             onChange={(e) => setS({ ...s, audit_log_retention_days: e.target.value })}
           />
           <div className="help-text">
-            Default 365 hari. Set <code>0</code> untuk menonaktifkan prune (audit log disimpan
-            selamanya). Maksimal 3650 (~10 tahun). Cron menghapus paling banyak 1.000 baris per
-            menit agar tidak membebani database.
+            Default 30 hari. Rentang yang diizinkan 30–365 hari. Audit log selalu dipangkas otomatis
+            (tidak bisa dinonaktifkan). Cron menghapus paling banyak 1.000 baris per menit agar tidak
+            membebani database.
           </div>
           <Button
             icon={Save}
             size="sm"
             className="mt-2"
             loading={savingKey === "audit_log_retention_days"}
-            onClick={() => save("audit_log_retention_days", s.audit_log_retention_days ?? "365")}
+            onClick={() => save("audit_log_retention_days", s.audit_log_retention_days ?? "30")}
           >
             Simpan retensi
+          </Button>
+        </div>
+      </section>
+
+      {/* Retensi chat (support & refund) */}
+      <section className="card p-5 space-y-3">
+        <div className="flex items-center gap-2.5">
+          <div className="size-10 rounded-xl bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
+            <MessagesSquare size={20} />
+          </div>
+          <div>
+            <div className="font-extrabold text-[var(--color-ink)]">Retensi chat</div>
+            <div className="text-xs text-[var(--color-ink-2)]">
+              Lama chat yang sudah ditutup dibiarkan sebelum dihapus total oleh sistem.
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="label" htmlFor="set-chat-retention">Hapus chat closed setelah</label>
+          <select
+            id="set-chat-retention"
+            className="select-input"
+            value={s.chat_retention_hours ?? "24"}
+            onChange={(e) => setS({ ...s, chat_retention_hours: e.target.value })}
+          >
+            <option value="24">24 jam (1 hari)</option>
+            <option value="48">48 jam (2 hari)</option>
+            <option value="72">72 jam (3 hari)</option>
+          </select>
+          <div className="help-text">
+            Berlaku untuk chat support umum maupun chat refund. Setelah ditutup admin dan melewati
+            durasi ini, seluruh riwayat chat dihapus permanen di sisi user maupun admin.
+          </div>
+          <Button
+            icon={Save}
+            size="sm"
+            className="mt-2"
+            loading={savingKey === "chat_retention_hours"}
+            onClick={() => save("chat_retention_hours", s.chat_retention_hours ?? "24")}
+          >
+            Simpan retensi chat
           </Button>
         </div>
       </section>

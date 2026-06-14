@@ -13,6 +13,7 @@ import {
   Sparkles,
   X,
   Lock,
+  LifeBuoy,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { rupiah, dateID, relativeID } from "../lib/format";
@@ -22,6 +23,7 @@ import { Loading } from "../components/Loading";
 import { Empty } from "../components/Empty";
 import { Button, LinkButton } from "../components/Button";
 import { Alert } from "../components/Alert";
+import { Pagination } from "../components/Pagination";
 import { useBackdropClose, useModalEffects } from "../lib/hooks";
 import { validatePassword } from "@shared/constants";
 
@@ -43,12 +45,20 @@ interface WtRow {
   note: string | null;
   created_at: number;
 }
+interface WtPage {
+  items: WtRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
 
 const QUICK_AMOUNTS = [10000, 25000, 50000, 75000, 100000, 200000];
+const TX_PAGE_SIZE = 20;
 
 export default function AccountPage() {
   const [me, setMe] = useState<MeResp | null>(null);
-  const [tx, setTx] = useState<WtRow[]>([]);
+  const [tx, setTx] = useState<WtPage | null>(null);
+  const [txPage, setTxPage] = useState(1);
   const [topup, setTopup] = useState(50000);
   const [busy, setBusy] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
@@ -56,14 +66,22 @@ export default function AccountPage() {
   const toast = useToast();
   const nav = useNavigate();
 
-  async function load() {
+  async function loadMe() {
     setMe(await api<MeResp>("/account/me"));
-    setTx(await api<WtRow[]>("/account/wallet/transactions"));
+  }
+  async function loadTx(page: number) {
+    setTx(
+      await api<WtPage>(`/account/wallet/transactions?page=${page}&page_size=${TX_PAGE_SIZE}`),
+    );
   }
 
   useEffect(() => {
-    load();
+    loadMe();
   }, []);
+
+  useEffect(() => {
+    loadTx(txPage);
+  }, [txPage]);
 
   async function startTopup() {
     if (topup < 10000) return toast.error("Minimal Rp10.000.");
@@ -136,12 +154,15 @@ export default function AccountPage() {
               </div>
             </div>
           </div>
-          <div className="p-4 sm:p-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="p-4 sm:p-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             <LinkButton to="/akun/pesanan" variant="outline" icon={Receipt} className="!justify-start">
               Pesanan
             </LinkButton>
             <LinkButton to="/katalog" variant="outline" icon={ShoppingBag} className="!justify-start">
               Belanja
+            </LinkButton>
+            <LinkButton to="/akun/support" variant="outline" icon={LifeBuoy} className="!justify-start">
+              Bantuan
             </LinkButton>
             <Button
               variant="outline"
@@ -169,22 +190,32 @@ export default function AccountPage() {
               <History size={16} className="text-[var(--color-brand-700)]" />
               Mutasi saldo
             </div>
-            {tx.length > 0 && (
-              <div className="text-xs text-[var(--color-ink-3)]">{tx.length} terakhir</div>
+            {tx && tx.total > 0 && (
+              <div className="text-xs text-[var(--color-ink-3)]">{tx.total} aktivitas</div>
             )}
           </div>
-          {tx.length === 0 ? (
+          {!tx ? (
+            <div className="text-sm text-[var(--color-ink-3)] py-6 text-center">Memuat mutasi…</div>
+          ) : tx.total === 0 ? (
             <Empty
               icon={History}
               title="Belum ada mutasi saldo"
               hint="Top up saldo dari panel kanan untuk mulai pakai pembayaran cepat."
             />
           ) : (
-            <ul className="divide-y divide-[var(--color-border)]">
-              {tx.map((t) => (
-                <TxRow key={t.id} tx={t} />
-              ))}
-            </ul>
+            <>
+              <ul className="divide-y divide-[var(--color-border)]">
+                {tx.items.map((t) => (
+                  <TxRow key={t.id} tx={t} />
+                ))}
+              </ul>
+              <Pagination
+                page={tx.page}
+                pageSize={tx.pageSize}
+                total={tx.total}
+                onPageChange={setTxPage}
+              />
+            </>
           )}
         </div>
       </div>

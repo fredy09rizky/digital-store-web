@@ -171,11 +171,12 @@ app.post("/:id/refund", async (c) => {
   if (!okAck) return fail(c, "ack_required", "Konfirmasi password admin diperlukan.", 403);
   const id = c.req.param("id");
   const o = await c.env.DB.prepare(
-    "SELECT id, user_id, status, total_cents FROM orders WHERE id = ?",
+    "SELECT id, user_id, status, total_cents, kind FROM orders WHERE id = ?",
   )
     .bind(id)
-    .first<{ id: string; user_id: string; status: string; total_cents: number }>();
+    .first<{ id: string; user_id: string; status: string; total_cents: number; kind: string }>();
   if (!o) return fail(c, "not_found", "Order tidak ditemukan.", 404);
+  if (o.kind === "topup") return fail(c, "not_refundable", "Top up saldo tidak bisa direfund.");
   if (o.status !== "paid") return fail(c, "invalid_state", "Hanya order paid yang bisa direfund.");
   const ts = now();
   // Atomik: status -> refunded

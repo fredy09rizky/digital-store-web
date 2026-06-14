@@ -115,6 +115,7 @@ export interface OrderDetail {
   id: string;
   code: string;
   status: OrderStatus;
+  kind: "purchase" | "topup";
   paymentMethod: PaymentMethod;
   subtotalCents: number;
   discountCents: number;
@@ -147,7 +148,8 @@ export interface OrderDetail {
     expiresAtProvider: number | null;
   } | null;
   deliveredItems: DeliveredItem[];
-  supportChat: { id: string; status: string } | null;
+  refundChat: { id: string; status: string } | null;
+  refundRequestedAt: number | null;
   reviewable: { productId: string; productName: string; reviewed: boolean }[];
 }
 
