@@ -293,6 +293,7 @@ Migrasi yang tersedia:
 - `0010_drop_short_desc.sql` — hapus kolom `products.short_desc`. Deskripsi singkat & lengkap disatukan jadi satu field **Deskripsi** (maks 2000 karakter). Pencarian katalog kini memakai kolom `description`.
 - `0011_chat_and_order_rework.sql` — (a) tambah `orders.kind` (`purchase`/`topup`) + `orders.refund_requested_at`; top up disembunyikan dari daftar pesanan dan tidak bisa direfund; (b) rebuild `support_chats`: `order_id` jadi nullable + kolom `kind` (`refund`/`support`), hapus `cleanup_at`, data chat lama dikosongkan; (c) setting `chat_retention_hours` (default 24) dan `audit_log_retention_days` dipaksa ke 30.
 - `0012_drop_review_images.sql` — hapus tabel `review_images`. Fitur foto review dihapus; review kini teks saja.
+- `0013_drop_invalid_stock.sql` — hapus baris stok ber-status `invalid`. Fitur "tandai invalid" diganti "hapus stok" (menghapus item `available` permanen); status `invalid` tidak lagi dipakai.
 
 ---
 
@@ -430,8 +431,9 @@ Aturan:
 
 - Stok tidak bisa hanya berupa angka; admin harus mengupload data nyata.
 - Stok aktif = jumlah baris dengan status `available`. `reserved` dan `sold` tidak ditampilkan ke katalog.
-- Batas maksimal stok hidup (available + reserved) per produk dijaga oleh `MAX_STOCK_PER_PRODUCT` (default 1000). Upload yang membuat stok hidup melewati batas ditolak dengan kode `stock_limit_exceeded` yang menyebut sisa kuota. `sold` (historis) dan `invalid` (dinonaktifkan) tidak dihitung terhadap batas. Untuk menaikkan batas, ubah `MAX_STOCK_PER_PRODUCT` di `wrangler.toml` lalu deploy ulang.
-- Halaman Stok Produk admin menampilkan daftar item dengan **pagination** (50 per halaman). Statistik Total/Available/Reserved/Sold/Invalid dihitung di server lewat agregasi `GROUP BY status`, jadi akurat lepas dari halaman yang sedang dibuka.
+- Batas maksimal stok hidup (available + reserved) per produk dijaga oleh `MAX_STOCK_PER_PRODUCT` (default 1000). Upload yang membuat stok hidup melewati batas ditolak dengan kode `stock_limit_exceeded` yang menyebut sisa kuota. `sold` (historis) tidak dihitung terhadap batas. Untuk menaikkan batas, ubah `MAX_STOCK_PER_PRODUCT` di `wrangler.toml` lalu deploy ulang.
+- Halaman Stok Produk admin menampilkan daftar item dengan **pagination** (50 per halaman). Statistik Total/Available/Reserved/Sold dihitung di server lewat agregasi `GROUP BY status`, jadi akurat lepas dari halaman yang sedang dibuka.
+- Admin bisa menghapus stok terpilih (satu atau semua dalam satu halaman). **Hanya item `available` yang bisa dihapus** — item `reserved` (order berjalan) dan `sold` (sudah dibeli user, tampil di riwayat pesanan) tidak terpengaruh.
 - Saat ada reservasi aktif, edit produk dikunci (`locked`). Hapus reservasi lewat order expired/cancel sebelum mengubah produk.
 
 ---
@@ -544,7 +546,7 @@ Fitur admin:
 
 - Dashboard: omzet hari ini, order paid/pending/expired, user aktif, stok aktif, review menunggu, saldo masuk, refund hari ini, voucher aktif, chat butuh tindak lanjut, best seller hari ini.
 - Produk: tambah/edit/hapus, kategori, harga, harga promo, durasi, harga grosir bertingkat, deskripsi (satu field, maks 2000 karakter, juga dipakai untuk pencarian), gambar (thumbnail + galeri maks 5, masing-masing ≤ 2 MB), status. Edit dikunci saat ada reservasi aktif. Tier harga & galeri ikut termuat saat edit sehingga tidak hilang saat disimpan ulang.
-- Stok: paste/import TXT, lihat per item dengan pagination (50/halaman), tandai invalid. Statistik status dihitung server-side. Batas stok per produk via `MAX_STOCK_PER_PRODUCT`.
+- Stok: paste/import TXT, lihat per item dengan pagination (50/halaman), hapus stok terpilih (hanya item `available`; reserved/sold aman). Statistik status dihitung server-side. Batas stok per produk via `MAX_STOCK_PER_PRODUCT`.
 - Order: filter status, **buka detail order** (item, pembayaran, bukti transfer manual, akun terkirim), tandai paid manual, refund, hapus, bersihkan order >30 hari, export CSV.
 - User: filter, nonaktifkan, aktifkan, hapus permanen / soft delete (lihat [Penghapusan user](#penghapusan-user)), reset password, sesuaikan saldo (dengan ack password admin).
 - Voucher: CRUD penuh dengan kalender aktif.

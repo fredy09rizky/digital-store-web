@@ -6,7 +6,7 @@ import {
   Upload,
   FileUp,
   Plus,
-  Ban,
+  Trash2,
   Mail,
   Lock,
   Calendar,
@@ -43,7 +43,6 @@ interface StockStats {
   available: number;
   reserved: number;
   sold: number;
-  invalid: number;
 }
 
 interface StockResponse {
@@ -58,7 +57,6 @@ const STATUS_CLS: Record<string, string> = {
   available: "bg-[color-mix(in_srgb,var(--color-success)_14%,transparent)] text-[var(--color-success)] border-[color-mix(in_srgb,var(--color-success)_32%,transparent)]",
   reserved: "bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-[var(--color-warning)] border-[color-mix(in_srgb,var(--color-warning)_32%,transparent)]",
   sold: "bg-[var(--color-surface-tint)] text-[var(--color-brand-700)] border-sky-200",
-  invalid: "bg-[color-mix(in_srgb,var(--color-danger)_12%,transparent)] text-[var(--color-danger)] border-[color-mix(in_srgb,var(--color-danger)_32%,transparent)]",
 };
 
 export default function AdminStock() {
@@ -69,7 +67,7 @@ export default function AdminStock() {
   const [busy, setBusy] = useState(false);
   const [showAllPwd, setShowAllPwd] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [confirmInvalidOpen, setConfirmInvalidOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const toast = useToast();
 
   const PAGE_SIZE = 50;
@@ -77,9 +75,16 @@ export default function AdminStock() {
   const stats = data?.stats ?? null;
 
   async function load() {
-    setData(
-      await api<StockResponse>(`/admin/products/${productId}/stock?page=${page}&page_size=${PAGE_SIZE}`),
+    const r = await api<StockResponse>(
+      `/admin/products/${productId}/stock?page=${page}&page_size=${PAGE_SIZE}`,
     );
+    // Auto mundur kalau halaman jadi kosong setelah hapus stok padahal masih
+    // ada data di halaman sebelumnya.
+    if (r.items.length === 0 && r.total > 0 && page > 1) {
+      setPage((p) => Math.max(1, p - 1));
+      return;
+    }
+    setData(r);
   }
   useEffect(() => {
     load();
@@ -112,16 +117,16 @@ export default function AdminStock() {
     e.target.value = "";
   }
 
-  async function markInvalid(ids: string[]) {
+  async function deleteStock(ids: string[]) {
     if (!ids.length) return;
     try {
-      await api("/admin/products/stock/mark-invalid", { body: { ids } });
-      toast.success(`${ids.length} item ditandai invalid.`);
+      const r = await api<{ removed: number }>("/admin/products/stock/delete", { body: { ids } });
+      toast.success(`${r.removed} item stok dihapus.`);
       setSel(new Set());
-      setConfirmInvalidOpen(false);
+      setConfirmDeleteOpen(false);
       load();
     } catch (e: any) {
-      toast.error(e?.message ?? "Gagal menandai invalid.");
+      toast.error(e?.message ?? "Gagal menghapus stok.");
       throw e;
     }
   }
@@ -151,12 +156,11 @@ export default function AdminStock() {
       </div>
 
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <StatChip label="Total" value={stats.total} />
           <StatChip label="Available" value={stats.available} tone="emerald" />
           <StatChip label="Reserved" value={stats.reserved} tone="amber" />
           <StatChip label="Sold" value={stats.sold} tone="sky" />
-          <StatChip label="Invalid" value={stats.invalid} tone="rose" />
         </div>
       )}
 
@@ -343,11 +347,11 @@ user2@mail.com|S3cret|extra info`}
           </span>
           <Button
             variant="danger"
-            icon={Ban}
+            icon={Trash2}
             size="sm"
-            onClick={() => setConfirmInvalidOpen(true)}
+            onClick={() => setConfirmDeleteOpen(true)}
           >
-            Tandai invalid
+            Hapus stok
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setSel(new Set())}>
             Batal
@@ -356,14 +360,14 @@ user2@mail.com|S3cret|extra info`}
       )}
 
       <ConfirmDialog
-        open={confirmInvalidOpen}
-        title={`Tandai ${sel.size} item invalid?`}
-        tone="warning"
-        icon={Ban}
-        confirmLabel="Tandai invalid"
-        description="Item yang ditandai invalid tidak akan masuk ke pool stok yang dipakai untuk reservasi order baru. Aksi ini tidak menghapus data, hanya mengubah status."
-        onClose={() => setConfirmInvalidOpen(false)}
-        onConfirm={() => markInvalid(Array.from(sel))}
+        open={confirmDeleteOpen}
+        title={`Hapus ${sel.size} item stok?`}
+        tone="danger"
+        icon={Trash2}
+        confirmLabel="Hapus permanen"
+        description="Item stok yang dipilih akan dihapus permanen dari database. Hanya item berstatus available yang terhapus; item reserved (order berjalan) & sold (sudah dibeli user) tidak terpengaruh."
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => deleteStock(Array.from(sel))}
       />
     </div>
   );

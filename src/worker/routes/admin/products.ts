@@ -367,11 +367,11 @@ app.get("/:id/stock", async (c) => {
       .all<{ status: string; c: number }>(),
   ]);
 
-  const stats = { total: 0, available: 0, reserved: 0, sold: 0, invalid: 0 };
+  const stats = { total: 0, available: 0, reserved: 0, sold: 0 };
   for (const r of statsRows.results ?? []) {
     const n = r.c ?? 0;
     stats.total += n;
-    if (r.status === "available" || r.status === "reserved" || r.status === "sold" || r.status === "invalid") {
+    if (r.status === "available" || r.status === "reserved" || r.status === "sold") {
       stats[r.status] = n;
     }
   }
@@ -379,25 +379,31 @@ app.get("/:id/stock", async (c) => {
   return ok(c, { ...buildPage(rows.results ?? [], total?.c ?? 0, p), stats });
 });
 
-const MarkInvalidBody = z.object({ ids: z.array(z.string()).min(1).max(200) });
-app.post("/stock/mark-invalid", async (c) => {
+const DeleteStockBody = z.object({ ids: z.array(z.string()).min(1).max(200) });
+app.post("/stock/delete", async (c) => {
   const body = await c.req.json().catch(() => null);
-  const parsed = MarkInvalidBody.safeParse(body);
+  const parsed = DeleteStockBody.safeParse(body);
   if (!parsed.success) return fail(c, "validation", "Input tidak valid.");
   const placeholders = parsed.data.ids.map(() => "?").join(",");
-  await c.env.DB.prepare(
-    `UPDATE product_inventory_items SET status='invalid', updated_at = ?
+  // Hanya item 'available' yang boleh dihapus. JANGAN pernah menghapus
+  // 'reserved' (merusak order berjalan) atau 'sold' (menghapus akun yang
+  // sudah dibeli user dari riwayat pesanannya). Guard di SQL = double-check
+  // meski UI sudah membatasi seleksi ke available.
+  const r = await c.env.DB.prepare(
+    `DELETE FROM product_inventory_items
        WHERE id IN (${placeholders}) AND status = 'available'`,
   )
-    .bind(now(), ...parsed.data.ids)
+    .bind(...parsed.data.ids)
     .run();
+  // @ts-ignore meta exists
+  const removed = r.meta?.changes ?? 0;
   await audit(c.env, {
     actorKind: "admin",
     actorId: c.get("admin")!.id,
-    action: "admin.stock.mark_invalid",
-    meta: { count: parsed.data.ids.length },
+    action: "admin.stock.delete",
+    meta: { requested: parsed.data.ids.length, removed },
   });
-  return ok(c, { ok: true });
+  return ok(c, { removed });
 });
 
 export default app;
