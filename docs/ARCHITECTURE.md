@@ -193,9 +193,9 @@ Audit log mencatat dua action berbeda (`admin.user.delete.hard` vs `admin.user.d
 
 ## Pagination admin list
 
-Helper `parsePagination` di `lib/pagination.ts` membaca `?page=&page_size=` dengan default 50, max 200, dan mengembalikan `{ page, pageSize, offset }`. Response standar `{ items, page, pageSize, total }` dipakai oleh `/admin/orders`, `/admin/users`, `/admin/dashboard/audit`, `/admin/support`, dan `/account/wallet/transactions` (mutasi saldo user, 20 per halaman). Admin UI & halaman Akun memakai komponen `Pagination` ringan untuk navigasi.
+Helper `parsePagination` di `lib/pagination.ts` membaca `?page=&page_size=` dengan default 50, max 200, dan mengembalikan `{ page, pageSize, offset }`. Response standar `{ items, page, pageSize, total }` dipakai oleh `/admin/orders`, `/admin/users`, `/admin/dashboard/audit`, `/admin/support`, `/admin/reviews`, dan `/account/wallet/transactions` (mutasi saldo user, 20 per halaman). Admin UI & halaman Akun memakai komponen `Pagination` ringan untuk navigasi.
 
-Untuk admin list yang biasanya kecil (kategori, voucher, review pending, support open), pagination belum diterapkan agar UX tetap simpel. Kalau dataset bertumbuh, pola yang sama bisa di-port ke list itu.
+Untuk admin list yang biasanya kecil (kategori, voucher), pagination belum diterapkan agar UX tetap simpel. Kalau dataset bertumbuh, pola yang sama bisa di-port ke list itu.
 
 ## Logging terstruktur
 

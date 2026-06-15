@@ -15,6 +15,7 @@ import { Button } from "../../components/Button";
 import { Empty } from "../../components/Empty";
 import { ReviewCardSkeleton } from "../../components/Loading";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { Pagination } from "../../components/Pagination";
 
 interface RRow {
   id: string;
@@ -27,6 +28,15 @@ interface RRow {
   created_at: number;
 }
 
+interface RPage {
+  items: RRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+const PAGE_SIZE = 20;
+
 const TABS: { value: "pending" | "approved" | "rejected" | "spam"; label: string }[] = [
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
@@ -35,19 +45,35 @@ const TABS: { value: "pending" | "approved" | "rejected" | "spam"; label: string
 ];
 
 export default function AdminReviews() {
-  const [list, setList] = useState<RRow[] | null>(null);
+  const [data, setData] = useState<RPage | null>(null);
   const [status, setStatus] = useState<"pending" | "approved" | "rejected" | "spam">("pending");
+  const [page, setPage] = useState(1);
   const [confirmDel, setConfirmDel] = useState<RRow | null>(null);
   const toast = useToast();
 
   async function load() {
-    setList(null);
-    setList(await api<RRow[]>(`/admin/reviews/?status=${status}`));
+    const r = await api<RPage>(
+      `/admin/reviews/?status=${status}&page=${page}&page_size=${PAGE_SIZE}`,
+    );
+    // Auto mundur kalau halaman jadi kosong setelah moderasi/hapus padahal
+    // masih ada data di halaman sebelumnya.
+    if (r.items.length === 0 && r.total > 0 && page > 1) {
+      setPage((p) => Math.max(1, p - 1));
+      return;
+    }
+    setData(r);
   }
+
+  // Reset ke halaman 1 saat ganti tab status.
   useEffect(() => {
+    setPage(1);
+  }, [status]);
+
+  useEffect(() => {
+    setData(null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, page]);
 
   async function moderate(id: string, target: "approved" | "rejected" | "spam") {
     try {
@@ -101,29 +127,37 @@ export default function AdminReviews() {
         ))}
       </div>
 
-      {list === null ? (
+      {data === null ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <ReviewCardSkeleton key={i} />
           ))}
         </div>
-      ) : list.length === 0 ? (
+      ) : data.items.length === 0 ? (
         <Empty
           icon={Filter}
           title={`Tidak ada review ${status}`}
           hint="Coba ganti tab di atas untuk melihat status lain."
         />
       ) : (
-        <div className="space-y-2">
-          {list.map((r) => (
-            <ReviewCard
-              key={r.id}
-              row={r}
-              onModerate={(t) => moderate(r.id, t)}
-              onDelete={() => setConfirmDel(r)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-2">
+            {data.items.map((r) => (
+              <ReviewCard
+                key={r.id}
+                row={r}
+                onModerate={(t) => moderate(r.id, t)}
+                onDelete={() => setConfirmDel(r)}
+              />
+            ))}
+          </div>
+          <Pagination
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onPageChange={setPage}
+          />
+        </>
       )}
 
       <ConfirmDialog

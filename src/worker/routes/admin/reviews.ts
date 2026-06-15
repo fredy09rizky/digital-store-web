@@ -4,21 +4,29 @@ import type { AppContext } from "../../env";
 import { fail, ok } from "../../lib/response";
 import { now } from "../../lib/time";
 import { audit } from "../../lib/audit";
+import { buildPage, parsePagination } from "../../lib/pagination";
 
 const app = new Hono<AppContext>({ strict: false });
 
 app.get("/", async (c) => {
   const status = c.req.query("status") ?? "pending";
-  const rs = await c.env.DB.prepare(
-    `SELECT r.*, u.username, p.name AS product_name FROM reviews r
-       JOIN users u ON u.id = r.user_id
-       JOIN products p ON p.id = r.product_id
-      WHERE r.status = ?
-      ORDER BY r.created_at DESC LIMIT 200`,
-  )
-    .bind(status)
-    .all<any>();
-  return ok(c, rs.results ?? []);
+  const p = parsePagination({ query: (k) => c.req.query(k) });
+  const [rs, total] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT r.*, u.username, p.name AS product_name FROM reviews r
+         JOIN users u ON u.id = r.user_id
+         JOIN products p ON p.id = r.product_id
+        WHERE r.status = ?
+        ORDER BY r.created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+      .bind(status, p.pageSize, p.offset)
+      .all<any>(),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM reviews WHERE status = ?")
+      .bind(status)
+      .first<{ c: number }>(),
+  ]);
+  return ok(c, buildPage(rs.results ?? [], total?.c ?? 0, p));
 });
 
 const ModBody = z.object({
