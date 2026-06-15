@@ -246,10 +246,20 @@ dengan panel ringkasan `card ... h-fit lg:sticky lg:top-20` di kanan. Di mobile
 panel turun ke bawah (1 kolom).
 
 ### Hero / panel gradient
-Hero homepage, header akun, dan hero dashboard admin memakai gradient "aurora deep"
-(`linear-gradient(135deg, #1b1547, #2a1d6b, #3a1f63)`) + `aurora-blob`. Konten di
-atasnya `relative` agar di atas blob. Teks putih + `bg-white/NN` untuk elemen kaca
-(ini sengaja putih translucent karena di atas panel gelap — bukan surface).
+- **Hero homepage** kini memakai **warna solid** `#1b1547` (iris tua) + tekstur titik
+  halus + garis aksen tipis fuchsia di tepi kiri — bukan gradient besar, dan judulnya
+  **tanpa** gradient text-clip (warna solid `#c4b5ff`). Treatment ini sengaja dibuat
+  lebih tegas/editorial, bukan look "template".
+- **Header akun** dan **hero dashboard admin** masih memakai gradient "aurora deep"
+  (`linear-gradient(135deg, #1b1547, #2a1d6b, #3a1f63)`) + `aurora-blob`.
+- Pola umum panel gelap: konten di atasnya `relative` agar di atas blob. Teks putih +
+  `bg-white/NN` untuk elemen kaca (sengaja putih translucent karena di atas panel
+  gelap — bukan surface).
+
+> Catatan: warna deep hero di-hardcode (`#1b1547` dst), **bukan** token, karena panel
+> ini selalu gelap di light & dark — token brand akan flip di dark dan merusak kontras
+> teks putih. Token `--color-aurora-*` & utility `aurora-blob` tetap dipakai di header
+> akun, dashboard admin, avatar (AppShell), dan aksen invoice.
 
 ---
 
