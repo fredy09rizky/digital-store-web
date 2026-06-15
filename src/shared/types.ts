@@ -43,7 +43,6 @@ export interface PublicProductDetail extends PublicProductSummary {
   images: { id: string; url: string }[];
   warrantyNote: string | null;
   priceTiers: { minQty: number; unitPriceCents: number }[];
-  reviews: PublicReview[];
 }
 
 export interface PublicReview {
@@ -52,7 +51,6 @@ export interface PublicReview {
   comment: string;
   username: string;
   createdAt: number;
-  images: { id: string; url: string }[];
 }
 
 export interface CartItemView {

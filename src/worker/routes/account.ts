@@ -7,8 +7,9 @@ import { nanoId } from "../lib/id";
 import { pakasirProvider } from "../services/payment";
 import { audit } from "../lib/audit";
 import { rateLimit } from "../lib/rate-limit";
-import { imageUrlSchema } from "../lib/validation";
+import { sanitizeText } from "../lib/validation";
 import { buildPage, parsePagination } from "../lib/pagination";
+import { REVIEW_COMMENT_MAX } from "../../shared/constants";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -237,13 +238,13 @@ app.post("/refund-request", async (c) => {
   return ok(c, { chatId: sid });
 });
 
-// Submit review (hanya pembeli sukses)
+// Submit review (hanya pembeli sukses). Review berupa teks saja (UTF-8 +
+// emoji), tanpa foto.
 const ReviewBody = z.object({
   orderId: z.string().min(1),
   productId: z.string().min(1),
   rating: z.coerce.number().int().min(1).max(5),
-  comment: z.string().trim().max(1000).default(""),
-  imageUrls: z.array(imageUrlSchema).max(2).optional().default([]),
+  comment: z.string().max(2000).optional().default(""),
 });
 
 app.post("/reviews", async (c) => {
@@ -272,19 +273,13 @@ app.post("/reviews", async (c) => {
 
   const ts = now();
   const reviewId = nanoId("rv");
+  const comment = sanitizeText(parsed.data.comment, REVIEW_COMMENT_MAX);
   await c.env.DB.prepare(
     `INSERT INTO reviews (id, product_id, order_id, user_id, rating, comment, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(reviewId, parsed.data.productId, parsed.data.orderId, user.id, parsed.data.rating, parsed.data.comment, ts, ts)
+    .bind(reviewId, parsed.data.productId, parsed.data.orderId, user.id, parsed.data.rating, comment, ts, ts)
     .run();
-  for (let i = 0; i < parsed.data.imageUrls.length; i++) {
-    await c.env.DB.prepare(
-      "INSERT INTO review_images (id, review_id, url, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-      .bind(nanoId("ri"), reviewId, parsed.data.imageUrls[i], i, ts)
-      .run();
-  }
   await audit(c.env, {
     actorKind: "user",
     actorId: user.id,

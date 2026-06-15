@@ -10,6 +10,7 @@ import { buildPage, parsePagination } from "../../lib/pagination";
 import { hasActiveReservations } from "../../services/inventory-reserve";
 import { parseInventoryText } from "../../services/inventory-parser";
 import { noEmoji, NO_EMOJI_MSG, firstIssueMessage, imageUrlSchema } from "../../lib/validation";
+import { deleteFileObjects } from "../../lib/r2";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -170,6 +171,16 @@ app.put("/:id", async (c) => {
   if (await hasActiveReservations(c.env.DB, id)) {
     return fail(c, "locked", "Produk sedang memiliki reservasi aktif. Edit ditangguhkan.", 423);
   }
+  // Snapshot gambar lama untuk membersihkan objek R2 yang tidak lagi dipakai
+  // setelah edit (thumbnail diganti / gambar galeri dibuang).
+  const [oldProd, oldImgs] = await Promise.all([
+    c.env.DB.prepare("SELECT thumbnail_url FROM products WHERE id = ?")
+      .bind(id)
+      .first<{ thumbnail_url: string | null }>(),
+    c.env.DB.prepare("SELECT url FROM product_images WHERE product_id = ?")
+      .bind(id)
+      .all<{ url: string }>(),
+  ]);
   const ts = now();
   await c.env.DB.prepare(
     `UPDATE products SET category_id=?, name=?, description=?, thumbnail_url=?,
@@ -215,6 +226,16 @@ app.put("/:id", async (c) => {
     targetKind: "product",
     targetId: id,
   });
+  // Hapus objek R2 milik gambar lama yang tidak lagi direferensikan.
+  const newUrls = new Set<string>(
+    [parsed.data.thumbnailUrl ?? null, ...parsed.data.imageUrls].filter(
+      (u): u is string => !!u,
+    ),
+  );
+  const removed = [oldProd?.thumbnail_url ?? null, ...(oldImgs.results ?? []).map((r) => r.url)].filter(
+    (u): u is string => !!u && !newUrls.has(u),
+  );
+  await deleteFileObjects(c.env, removed);
   return ok(c, { ok: true });
 });
 
@@ -223,7 +244,20 @@ app.delete("/:id", async (c) => {
   if (await hasActiveReservations(c.env.DB, id)) {
     return fail(c, "locked", "Produk memiliki reservasi aktif.", 423);
   }
+  // Kumpulkan gambar produk untuk dihapus dari R2 setelah baris produk dihapus.
+  const [prod, imgs] = await Promise.all([
+    c.env.DB.prepare("SELECT thumbnail_url FROM products WHERE id = ?")
+      .bind(id)
+      .first<{ thumbnail_url: string | null }>(),
+    c.env.DB.prepare("SELECT url FROM product_images WHERE product_id = ?")
+      .bind(id)
+      .all<{ url: string }>(),
+  ]);
   await c.env.DB.prepare("DELETE FROM products WHERE id = ?").bind(id).run();
+  await deleteFileObjects(c.env, [
+    prod?.thumbnail_url ?? null,
+    ...(imgs.results ?? []).map((r) => r.url),
+  ]);
   await audit(c.env, {
     actorKind: "admin",
     actorId: c.get("admin")!.id,

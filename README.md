@@ -58,7 +58,7 @@ Web store fullstack untuk menjual akun premium dan item digital lainnya, dibangu
 | HTTP framework | Hono v4 | Rute API di `/api/*` |
 | Bahasa | TypeScript 6 | Strict mode untuk worker dan client |
 | Database | Cloudflare D1 (SQLite) | FK aktif, relasi normalisasi |
-| Object storage | Cloudflare R2 | Thumbnail produk, bukti transfer, foto review |
+| Object storage | Cloudflare R2 | Thumbnail & galeri produk, bukti transfer |
 | Key-Value | Cloudflare KV | Sesi, OTP, rate limit, ack admin |
 | Frontend | React 19 + React Router 7 | Lazy route, SPA fallback Workers Assets |
 | Build tool | Vite 8 | Output ke `dist/client` |
@@ -292,6 +292,7 @@ Migrasi yang tersedia:
 - `0009_max_wallet_balance.sql` — default setting `max_wallet_balance_cents` (batas saldo maksimal user, default Rp1.000.000; `0` = tanpa batas).
 - `0010_drop_short_desc.sql` — hapus kolom `products.short_desc`. Deskripsi singkat & lengkap disatukan jadi satu field **Deskripsi** (maks 2000 karakter). Pencarian katalog kini memakai kolom `description`.
 - `0011_chat_and_order_rework.sql` — (a) tambah `orders.kind` (`purchase`/`topup`) + `orders.refund_requested_at`; top up disembunyikan dari daftar pesanan dan tidak bisa direfund; (b) rebuild `support_chats`: `order_id` jadi nullable + kolom `kind` (`refund`/`support`), hapus `cleanup_at`, data chat lama dikosongkan; (c) setting `chat_retention_hours` (default 24) dan `audit_log_retention_days` dipaksa ke 30.
+- `0012_drop_review_images.sql` — hapus tabel `review_images`. Fitur foto review dihapus; review kini teks saja.
 
 ---
 
@@ -318,7 +319,7 @@ Catatan deployment:
 - Beranda menampilkan produk terbaru (default), populer, promo, ready.
 - Search bar di-submit dengan tombol kirim ke `/katalog?q=...`.
 - Filter: kategori, range harga, ready stock, sort (terbaru, populer, terlaris, termurah, termahal).
-- Detail produk menampilkan harga, label promo, stok, durasi, garansi, harga grosir, review approved + foto. Galeri gambar utama dirender utuh (`object-contain` + backdrop blur) sehingga gambar dengan rasio non-4:3 tidak terpotong.
+- Detail produk menampilkan harga, label promo, stok, durasi, garansi, harga grosir, dan review approved (teks, berpaginasi). Galeri gambar utama dirender utuh (`object-contain` + backdrop blur) sehingga gambar dengan rasio non-4:3 tidak terpotong.
 - Keranjang: jumlah (qty) bisa diatur lewat tombol +/- **atau diketik langsung** (memudahkan qty besar). Input di-commit saat blur/Enter, dengan validasi: tidak boleh 0/kosong (balik ke nilai semula) dan tidak melebihi stok tersedia (di-clamp). Batas qty per item adalah **stok tersedia** itu sendiri — divalidasi backend; tidak ada cap angka tetap (hanya ada sanity guard `CART_QTY_MAX` yang sangat tinggi untuk menolak input rusak).
 
 ### 2. Checkout
@@ -349,7 +350,7 @@ Catatan deployment:
 
 - Akun saya: profil, saldo, mutasi, daftar order, detail order, invoice, bantuan/support, pengajuan refund, review.
 - Refund: user mengajukan via tombol di order detail (sekali per order); backend membuka chat refund khusus order itu dan mengirim pesan otomatis. Admin dapat menyetujui yang masuk ke saldo, atau mengirim akun pengganti via chat.
-- Review: hanya pembeli yang berhak. Maksimal 2 foto, 2MB per foto, status pending menunggu moderasi admin.
+- Review: hanya pembeli yang berhak. Berupa **teks saja** (UTF-8 + emoji, maks 500 karakter), status pending menunggu moderasi admin.
 
 ### Identitas user: username vs nama tampilan
 
@@ -502,9 +503,10 @@ Aturan saldo:
 ## Review & rating
 
 - Hanya pembeli sukses pada order tertentu yang boleh memberi review (validasi via `orders` + `order_items` join).
-- Maks 2 foto, 2MB per foto. Upload ke R2.
+- Review berupa **teks saja** — UTF-8 + emoji diizinkan, maksimal **500 karakter**, karakter kontrol dibuang (`sanitizeText`). **Tidak ada upload foto** (menghemat R2 storage & beban moderasi gambar).
 - Default status `pending`. Hanya `approved` yang ikut menghitung agregat rating produk.
 - Saat moderasi keluar/masuk `approved`, agregat (`rating_sum`, `rating_count`) di-update otomatis.
+- Tampil di detail produk via endpoint terpisah berpaginasi (`GET /products/:slug/reviews`, 5 per halaman) sehingga produk dengan ratusan review tetap ringan.
 - Admin bisa Approve / Reject / Spam / Hapus.
 
 ---
@@ -638,7 +640,8 @@ Log otomatis terlihat di `wrangler tail` dan bisa di-Logpush ke storage. Aturan:
 - Rate-limit di KV: login user, login admin, OTP, register, top-up, upload, support send, dan konfirmasi password admin.
 - Konfirmasi password admin diperlukan untuk aksi sensitif (token sekali pakai TTL 5 menit).
 - Upload R2 di-batas 2MB dan tipe yang diizinkan (png, jpg, webp, gif).
-- Path R2 yang sensitif (mis. bukti transfer manual di `proofs/`) dilindungi oleh `/api/files`: hanya admin atau user pemilik order yang berhak melihatnya. File publik (thumbnail produk, foto review) tetap bisa diakses tanpa login.
+- Path R2 yang sensitif (mis. bukti transfer manual di `proofs/`) dilindungi oleh `/api/files`: hanya admin atau user pemilik order yang berhak melihatnya. File publik (thumbnail & galeri produk) tetap bisa diakses tanpa login.
+- Objek R2 dihapus otomatis (best-effort) agar tidak menumpuk: gambar produk saat produk diedit (gambar yang dibuang) atau dihapus, dan bukti transfer saat order dihapus atau di-cleanup.
 - Tidak ada error verbose yang membocorkan info sensitif. Pesan error pakai bahasa alami dan tidak memancarkan kolom internal seperti `status_reason`.
 - Reservasi, mark paid, dan debit saldo memakai pola CAS (compare-and-swap) di SQL.
 

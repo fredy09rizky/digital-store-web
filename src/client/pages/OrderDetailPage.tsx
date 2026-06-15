@@ -20,7 +20,6 @@ import {
   EyeOff,
   Copy,
   Check,
-  Image as ImageIcon,
   CreditCardIcon,
 } from "lucide-react";
 import { api } from "../lib/api";
@@ -486,32 +485,15 @@ function ReviewModal({
 }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-
-  async function uploadImg(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (imageUrls.length >= 2) return toast.error("Maksimal 2 foto.");
-    if (f.size > 2 * 1024 * 1024) return toast.error("Maks 2MB per foto.");
-    const fd = new FormData();
-    fd.append("file", f);
-    fd.append("folder", "reviews");
-    try {
-      const up = await api<{ url: string }>("/upload", { formData: fd });
-      setImageUrls((s) => [...s, up.url]);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Upload gagal.");
-    }
-  }
 
   async function submit() {
     if (busy) return;
     setBusy(true);
     try {
       await api("/account/reviews", {
-        body: { orderId, productId, rating, comment, imageUrls },
+        body: { orderId, productId, rating, comment },
       });
       toast.success("Review terkirim. Menunggu moderasi admin.");
       onDone();
@@ -553,47 +535,11 @@ function ReviewModal({
           <label className="label">Komentar (opsional)</label>
           <textarea
             className="textarea"
-            placeholder="Ceritakan pengalamanmu pakai produk ini."
+            placeholder="Ceritakan pengalamanmu pakai produk ini (maks 500 karakter)."
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            maxLength={1000}
+            maxLength={500}
           />
-        </div>
-        <div>
-          <label className="label">Foto (opsional, maks 2)</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={uploadImg}
-            disabled={imageUrls.length >= 2}
-            className="block w-full text-sm text-[var(--color-ink-2)] file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:uppercase file:tracking-wider file:bg-[var(--color-brand-500)] file:text-white hover:file:bg-[var(--color-brand-700)] file:cursor-pointer disabled:opacity-50"
-          />
-          {imageUrls.length > 0 && (
-            <div className="flex gap-2 mt-2">
-              {imageUrls.map((u) => (
-                <div key={u} className="relative">
-                  <img
-                    src={u}
-                    className="size-20 object-cover rounded-lg border border-[var(--color-border)]"
-                    alt="Foto review"
-                  />
-                  <button
-                    className="absolute -top-2 -right-2 size-6 grid place-items-center rounded-full bg-[var(--color-danger)] text-white shadow"
-                    onClick={() => setImageUrls((arr) => arr.filter((x) => x !== u))}
-                    aria-label="Hapus foto"
-                    type="button"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {imageUrls.length === 0 && (
-            <p className="text-xs text-[var(--color-ink-3)] mt-1.5 inline-flex items-center gap-1">
-              <ImageIcon size={11} /> jpg / png / webp · maks 2MB per foto
-            </p>
-          )}
         </div>
       </div>
       <div className="flex gap-2 justify-end mt-5">

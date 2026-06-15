@@ -7,6 +7,7 @@ import { audit } from "../../lib/audit";
 import { creditWallet, expireOrderIfDue, markOrderPaid } from "../../services/order";
 import { consumeAdminAck } from "./auth";
 import { buildPage, parsePagination } from "../../lib/pagination";
+import { deleteFileObjects } from "../../lib/r2";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -212,7 +213,12 @@ app.delete("/:id", async (c) => {
   const okAck = await consumeAdminAck(c.env, admin.id, parsed.data.ack);
   if (!okAck) return fail(c, "ack_required", "Konfirmasi password admin diperlukan.", 403);
   const id = c.req.param("id");
+  // Ambil bukti transfer (kalau ada) untuk dibersihkan dari R2 setelah hapus.
+  const pay = await c.env.DB.prepare("SELECT proof_url FROM payments WHERE order_id = ?")
+    .bind(id)
+    .first<{ proof_url: string | null }>();
   await c.env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(id).run();
+  await deleteFileObjects(c.env, [pay?.proof_url ?? null]);
   await audit(c.env, {
     actorKind: "admin",
     actorId: admin.id,
@@ -232,11 +238,22 @@ app.post("/cleanup-old", async (c) => {
   const okAck = await consumeAdminAck(c.env, admin.id, parsed.data.ack);
   if (!okAck) return fail(c, "ack_required", "Konfirmasi password admin diperlukan.", 403);
   const cutoff = now() - 30 * 24 * 3600;
+  // Kumpulkan bukti transfer dari order yang akan dihapus untuk dibersihkan
+  // dari R2.
+  const proofs = await c.env.DB.prepare(
+    `SELECT p.proof_url FROM payments p
+       JOIN orders o ON o.id = p.order_id
+      WHERE o.status IN ('expired','cancelled','refunded') AND o.created_at < ?
+        AND p.proof_url IS NOT NULL`,
+  )
+    .bind(cutoff)
+    .all<{ proof_url: string | null }>();
   const r = await c.env.DB.prepare(
     "DELETE FROM orders WHERE status IN ('expired','cancelled','refunded') AND created_at < ?",
   )
     .bind(cutoff)
     .run();
+  await deleteFileObjects(c.env, (proofs.results ?? []).map((x) => x.proof_url));
   // @ts-ignore
   const removed = r.meta?.changes ?? 0;
   await audit(c.env, { actorKind: "admin", actorId: admin.id, action: "admin.order.cleanup_old", meta: { removed } });

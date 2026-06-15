@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppContext } from "../env";
 import { ok } from "../lib/response";
 import { ratingAvg } from "../services/product-helpers";
+import { parsePagination } from "../lib/pagination";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -180,30 +181,6 @@ app.get("/products/:slug", async (c) => {
     .bind(r.id)
     .all<{ min_qty: number; unit_price_cents: number }>();
 
-  const reviews = await c.env.DB.prepare(
-    `SELECT rv.id, rv.rating, rv.comment, rv.created_at, u.username
-       FROM reviews rv
-       JOIN users u ON u.id = rv.user_id
-      WHERE rv.product_id = ? AND rv.status = 'approved'
-      ORDER BY rv.created_at DESC LIMIT 50`,
-  )
-    .bind(r.id)
-    .all<{ id: string; rating: number; comment: string; created_at: number; username: string }>();
-
-  let reviewImages: Record<string, { id: string; url: string }[]> = {};
-  if ((reviews.results ?? []).length > 0) {
-    const ids = reviews.results!.map((r) => r.id);
-    const placeholders = ids.map(() => "?").join(",");
-    const ri = await c.env.DB.prepare(
-      `SELECT review_id, id, url FROM review_images WHERE review_id IN (${placeholders}) ORDER BY sort_order`,
-    )
-      .bind(...ids)
-      .all<{ review_id: string; id: string; url: string }>();
-    for (const x of ri.results ?? []) {
-      (reviewImages[x.review_id] ||= []).push({ id: x.id, url: x.url });
-    }
-  }
-
   const detail = {
     id: r.id,
     sku: r.sku,
@@ -225,17 +202,45 @@ app.get("/products/:slug", async (c) => {
     category: { id: r.category_id, slug: r.category_slug, name: r.category_name },
     images: images.results ?? [],
     priceTiers: (tiers.results ?? []).map((t) => ({ minQty: t.min_qty, unitPriceCents: t.unit_price_cents })),
-    reviews: (reviews.results ?? []).map((rv) => ({
-      id: rv.id,
-      rating: rv.rating,
-      comment: rv.comment,
-      username: rv.username,
-      createdAt: rv.created_at,
-      images: reviewImages[rv.id] ?? [],
-    })),
   };
 
   return ok(c, detail);
+});
+
+// Review approved per produk, berpaginasi (review berupa teks saja, tanpa foto).
+app.get("/products/:slug/reviews", async (c) => {
+  const slug = c.req.param("slug");
+  const prod = await c.env.DB.prepare("SELECT id FROM products WHERE slug = ? AND status='active'")
+    .bind(slug)
+    .first<{ id: string }>();
+  if (!prod) return c.json({ ok: false, error: { code: "not_found", message: "Produk tidak ditemukan." } }, 404);
+
+  const p = parsePagination({ query: (k) => c.req.query(k) });
+  const [rs, total] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT rv.id, rv.rating, rv.comment, rv.created_at, u.username
+         FROM reviews rv
+         JOIN users u ON u.id = rv.user_id
+        WHERE rv.product_id = ? AND rv.status = 'approved'
+        ORDER BY rv.created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+      .bind(prod.id, p.pageSize, p.offset)
+      .all<{ id: string; rating: number; comment: string; created_at: number; username: string }>(),
+    c.env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM reviews WHERE product_id = ? AND status = 'approved'",
+    )
+      .bind(prod.id)
+      .first<{ c: number }>(),
+  ]);
+  const items = (rs.results ?? []).map((rv) => ({
+    id: rv.id,
+    rating: rv.rating,
+    comment: rv.comment,
+    username: rv.username,
+    createdAt: rv.created_at,
+  }));
+  return ok(c, { items, page: p.page, pageSize: p.pageSize, total: total?.c ?? 0 });
 });
 
 app.get("/home", async (c) => {

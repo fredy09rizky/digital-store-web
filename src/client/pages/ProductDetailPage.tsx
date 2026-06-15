@@ -23,6 +23,22 @@ import { useApp } from "../state/AppProviders";
 import { useToast } from "../components/Toast";
 import { Button, IconButton, LinkButton } from "../components/Button";
 import { Empty } from "../components/Empty";
+import { Pagination } from "../components/Pagination";
+
+interface ReviewRow {
+  id: string;
+  rating: number;
+  comment: string;
+  username: string;
+  createdAt: number;
+}
+interface ReviewPage {
+  items: ReviewRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+const REVIEW_PAGE_SIZE = 5;
 
 export default function ProductDetailPage() {
   const { slug } = useParams();
@@ -30,6 +46,8 @@ export default function ProductDetailPage() {
   const [activeImg, setActiveImg] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [reviews, setReviews] = useState<ReviewPage | null>(null);
+  const [reviewPage, setReviewPage] = useState(1);
   const { boot, refreshCart } = useApp();
   const toast = useToast();
   const nav = useNavigate();
@@ -44,6 +62,20 @@ export default function ProductDetailPage() {
       .catch(() => null)
       .finally(() => setLoading(false));
   }, [slug]);
+
+  // Reset ke halaman 1 saat ganti produk.
+  useEffect(() => {
+    setReviewPage(1);
+  }, [slug]);
+
+  // Muat review berpaginasi (terpisah dari detail agar produk dengan ratusan
+  // review tetap ringan).
+  useEffect(() => {
+    setReviews(null);
+    api<ReviewPage>(`/products/${slug}/reviews?page=${reviewPage}&page_size=${REVIEW_PAGE_SIZE}`)
+      .then(setReviews)
+      .catch(() => setReviews(null));
+  }, [slug, reviewPage]);
 
   if (loading) return <ProductDetailSkeleton />;
   if (!p)
@@ -354,7 +386,7 @@ export default function ProductDetailPage() {
                 <Star size={15} className="text-amber-500 fill-amber-400 stroke-amber-400" />
                 Review pembeli
                 <span className="text-[var(--color-ink-3)] font-normal text-sm">
-                  ({p.reviews.length})
+                  ({reviews?.total ?? p.ratingCount})
                 </span>
               </div>
               {p.ratingCount > 0 && (
@@ -364,57 +396,54 @@ export default function ProductDetailPage() {
                 </div>
               )}
             </div>
-            {p.reviews.length === 0 ? (
+            {!reviews ? (
+              <div className="text-sm text-[var(--color-ink-3)] py-4">Memuat review…</div>
+            ) : reviews.total === 0 ? (
               <div className="text-sm text-[var(--color-ink-2)]">
                 Belum ada review yang disetujui.
               </div>
             ) : (
-              <ul className="space-y-3">
-                {p.reviews.map((r) => (
-                  <li
-                    key={r.id}
-                    className="border-b border-[var(--color-border)] pb-3 last:border-b-0 last:pb-0"
-                  >
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="font-bold text-[var(--color-ink)]">@{r.username}</div>
-                      <div className="flex items-center gap-0.5 text-amber-400">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Star
-                            key={i}
-                            size={13}
-                            className={
-                              i < r.rating
-                                ? "fill-amber-400 stroke-amber-400"
-                                : "stroke-[var(--color-border-strong)] fill-transparent"
-                            }
-                          />
-                        ))}
+              <>
+                <ul className="space-y-3">
+                  {reviews.items.map((r) => (
+                    <li
+                      key={r.id}
+                      className="border-b border-[var(--color-border)] pb-3 last:border-b-0 last:pb-0"
+                    >
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="font-bold text-[var(--color-ink)]">@{r.username}</div>
+                        <div className="flex items-center gap-0.5 text-amber-400">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star
+                              key={i}
+                              size={13}
+                              className={
+                                i < r.rating
+                                  ? "fill-amber-400 stroke-amber-400"
+                                  : "stroke-[var(--color-border-strong)] fill-transparent"
+                              }
+                            />
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-xs text-[var(--color-ink-3)]">
-                      {dateID(r.createdAt, { dateStyle: "medium" })}
-                    </div>
-                    {r.comment && (
-                      <div className="text-sm text-[var(--color-ink)] mt-1 whitespace-pre-line">
-                        {r.comment}
+                      <div className="text-xs text-[var(--color-ink-3)]">
+                        {dateID(r.createdAt, { dateStyle: "medium" })}
                       </div>
-                    )}
-                    {r.images.length > 0 && (
-                      <div className="mt-2 flex gap-2 flex-wrap">
-                        {r.images.map((im) => (
-                          <img
-                            key={im.id}
-                            src={im.url}
-                            alt=""
-                            loading="lazy"
-                            className="size-20 object-cover rounded-lg border border-[var(--color-border)]"
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                      {r.comment && (
+                        <div className="text-sm text-[var(--color-ink)] mt-1 whitespace-pre-line break-words">
+                          {r.comment}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <Pagination
+                  page={reviews.page}
+                  pageSize={reviews.pageSize}
+                  total={reviews.total}
+                  onPageChange={setReviewPage}
+                />
+              </>
             )}
           </div>
         </div>

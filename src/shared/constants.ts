@@ -12,8 +12,9 @@ export const PAYMENT_METHODS = ["qris", "bank_transfer", "wallet"] as const;
 
 export const REVIEW_STATUSES = ["pending", "approved", "rejected", "spam"] as const;
 
-export const MAX_REVIEW_IMAGES = 2;
-export const MAX_REVIEW_IMAGE_BYTES = 2 * 1024 * 1024;
+// Review berupa teks saja (UTF-8 + emoji). Tidak ada upload foto — menghindari
+// pemborosan R2 storage & beban moderasi gambar.
+export const REVIEW_COMMENT_MAX = 500;
 
 // Batas "sanity" qty per item di keranjang. Ini BUKAN batas bisnis — batas
 // pembelian yang sebenarnya adalah stok tersedia (divalidasi backend saat
