@@ -19,6 +19,7 @@ import { Pagination } from "../../components/Pagination";
 import { Button } from "../../components/Button";
 import { Empty } from "../../components/Empty";
 import { TableRowSkeleton } from "../../components/Loading";
+import { validatePassword } from "@shared/constants";
 
 interface URow {
   id: string;
@@ -84,9 +85,10 @@ export default function AdminUsers() {
         });
         toast.success("Status user diperbarui.");
       } else if (action.kind === "password") {
-        if (values.newPassword.length < 8) {
-          toast.error("Password baru minimal 8 karakter.");
-          throw new Error("short_password");
+        const pErr = validatePassword(values.newPassword);
+        if (pErr) {
+          toast.error(pErr);
+          throw new Error("weak_password");
         }
         await api(`/admin/users/${action.user.id}/password`, {
           body: { ack, newPassword: values.newPassword },
@@ -117,7 +119,7 @@ export default function AdminUsers() {
       load();
     } catch (e: any) {
       const skipMessages = new Set([
-        "short_password",
+        "weak_password",
         "invalid_amount",
         "amount_too_large",
         "insufficient_balance",
@@ -171,13 +173,15 @@ export default function AdminUsers() {
     if (action.kind === "password") {
       return {
         title: `Reset password: @${action.user.username}`,
-        description: "Sesi user akan invalid otomatis setelah password di-reset.",
+        description:
+          "Sesi user akan invalid otomatis setelah di-reset. Password wajib 10–30 karakter, mengandung huruf besar & kecil, angka, dan simbol (@ ! # $ % & *).",
         fields: [
           {
             name: "newPassword",
-            label: "Password baru (min 8 karakter)",
+            label: "Password baru",
             type: "password" as const,
             required: true,
+            placeholder: "Min 10, huruf besar/kecil, angka, simbol",
           },
         ],
         confirmLabel: "Reset password",

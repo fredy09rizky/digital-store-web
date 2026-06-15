@@ -369,8 +369,8 @@ Divalidasi di backend (`routes/auth.ts`) dan dicerminkan di form (`RegisterPage.
 - **Username**: 5–20 karakter, **hanya huruf, angka, dan garis bawah (`_`)**. Titik (`.`), plus (`+`), dan strip (`-`) ditolak. Disimpan lowercase dan wajib unik.
 - **Email**: format valid, **hanya domain populer** yang diizinkan (Gmail/Googlemail, Outlook/Hotmail/Live/MSN, Yahoo/Yahoo.co.id/Ymail, iCloud/me/mac, Proton). Tidak boleh ada tanda `+`, dan **maksimal 3 titik** di seluruh email. Daftar domain ada di `ALLOWED_EMAIL_DOMAINS` (mudah ditambah).
 - **Nama tampilan**: opsional, maksimal **30** karakter.
-- **Password**: **10–72 karakter**, wajib huruf besar, huruf kecil, angka, dan **minimal satu simbol dari `@ ! # $ % & *`**. Hanya boleh huruf, angka, dan simbol tersebut (karakter lain ditolak).
-- Policy password yang sama juga berlaku saat user **mengganti password** (`/auth/change-password`). Reset password oleh admin tidak dibatasi policy ini.
+- **Password**: **10–30 karakter**, wajib huruf besar, huruf kecil, angka, dan **minimal satu simbol dari `@ ! # $ % & *`**. Hanya boleh huruf, angka, dan simbol tersebut (karakter lain ditolak).
+- Policy password yang sama berlaku di **semua** jalur penetapan password: registrasi, **ganti password** user (`/auth/change-password`), dan **reset password user oleh admin** (`/admin/users/:id/password`).
 - Pesan error dikembalikan spesifik per aturan (mis. "Email tidak boleh mengandung lebih dari 3 titik.") dan ditampilkan jelas di form, dilengkapi checklist syarat live.
 
 ---

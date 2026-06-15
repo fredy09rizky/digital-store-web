@@ -39,7 +39,7 @@ export const DISPLAY_NAME_MAX = 30;
 
 // --- Password ---
 export const PASSWORD_MIN = 10;
-export const PASSWORD_MAX = 72;
+export const PASSWORD_MAX = 30;
 // Simbol yang diizinkan sekaligus wajib minimal satu.
 export const PASSWORD_SYMBOLS = "@!#$%&*";
 // Opsi A: password hanya boleh huruf, angka, dan simbol di atas.

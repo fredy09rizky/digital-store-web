@@ -9,6 +9,7 @@ import { consumeAdminAck } from "./auth";
 import { creditWallet } from "../../services/order";
 import { nanoId } from "../../lib/id";
 import { buildPage, parsePagination } from "../../lib/pagination";
+import { validatePassword } from "../../../shared/constants";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -161,13 +162,18 @@ app.post("/:id/status", async (c) => {
 
 const PasswordBody = z.object({
   ack: z.string().min(1),
-  newPassword: z.string().min(8).max(72),
+  newPassword: z.string().min(1).max(200),
 });
 app.post("/:id/password", async (c) => {
   const admin = c.get("admin")!;
   const body = await c.req.json().catch(() => null);
   const parsed = PasswordBody.safeParse(body);
   if (!parsed.success) return fail(c, "validation", "Form tidak valid.");
+  // Password yang di-set admin wajib memenuhi policy yang sama dengan
+  // registrasi & ganti password user. Divalidasi sebelum konsumsi ack agar
+  // password invalid tidak membakar token konfirmasi.
+  const pErr = validatePassword(parsed.data.newPassword);
+  if (pErr) return fail(c, "validation", pErr);
   const okAck = await consumeAdminAck(c.env, admin.id, parsed.data.ack);
   if (!okAck) return fail(c, "ack_required", "Konfirmasi password admin diperlukan.", 403);
   const id = c.req.param("id");
