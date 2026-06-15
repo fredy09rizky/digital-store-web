@@ -136,7 +136,7 @@ export default function AdminReviews() {
             <>
               Review dari <span className="font-semibold">@{confirmDel.username}</span> untuk
               produk <span className="font-semibold">{confirmDel.product_name}</span> akan
-              dihapus permanen. Foto pendukung review juga ikut dihapus.
+              dihapus permanen.
             </>
           ) : (
             "Review akan dihapus permanen."
