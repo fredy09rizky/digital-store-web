@@ -5,6 +5,7 @@ import { attachAuth, requireAdmin, requireUser } from "./middleware/auth";
 import { blockOnMaintenance } from "./middleware/maintenance";
 import { fail } from "./lib/response";
 import { log } from "./lib/log";
+import { isTransientD1Error } from "./lib/d1";
 
 import publicRoutes from "./routes/public";
 import authRoutes from "./routes/auth";
@@ -97,6 +98,28 @@ app.route("/api/admin", adminGuarded);
 
 // 404 untuk API
 app.all("/api/*", (c) => fail(c, "not_found", "Endpoint tidak ditemukan.", 404));
+
+// Penangan error global: cegah "Internal Server Error" telanjang. Error D1
+// transien (timeout/reset) dipetakan ke 503 yang jelas bisa di-retry; sisanya
+// 500 generik. Semua dicatat terstruktur untuk diagnosis (lihat wrangler tail).
+app.onError((err, c) => {
+  const transient = isTransientD1Error(err);
+  log.error({
+    event: transient ? "request.transient_error" : "request.unhandled_error",
+    msg: err instanceof Error ? err.message : String(err),
+    err,
+    meta: {
+      path: c.req.path,
+      method: c.req.method,
+      requestId: c.get("requestId"),
+      transient,
+    },
+  });
+  if (transient) {
+    return fail(c, "service_busy", "Sistem sedang sibuk sesaat. Silakan coba lagi.", 503);
+  }
+  return fail(c, "internal", "Terjadi kesalahan tak terduga. Silakan coba lagi.", 500);
+});
 
 // Static SPA fallback
 app.get("*", async (c) => {

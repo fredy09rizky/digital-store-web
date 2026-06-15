@@ -12,6 +12,7 @@ import {
 } from "../lib/cookies";
 import { rateLimit } from "../lib/rate-limit";
 import { audit } from "../lib/audit";
+import { withD1Retry } from "../lib/d1";
 import {
   validateUsername,
   validateEmail,
@@ -112,22 +113,24 @@ app.post("/login", async (c) => {
   });
   if (!rlUser.allowed) return fail(c, "rate_limited", "Akun ini dikunci sementara. Coba lagi nanti.", 429);
 
-  const u = await c.env.DB.prepare(
-    `SELECT id, username, email, password_hash, password_salt, status, status_reason, balance_cents, session_version
-       FROM users WHERE username = ? OR email = ?`,
-  )
-    .bind(parsed.data.username.toLowerCase(), parsed.data.username.toLowerCase())
-    .first<{
-      id: string;
-      username: string;
-      email: string;
-      password_hash: string;
-      password_salt: string;
-      status: string;
-      status_reason: string | null;
-      balance_cents: number;
-      session_version: number;
-    }>();
+  const u = await withD1Retry(() =>
+    c.env.DB.prepare(
+      `SELECT id, username, email, password_hash, password_salt, status, status_reason, balance_cents, session_version
+         FROM users WHERE username = ? OR email = ?`,
+    )
+      .bind(parsed.data.username.toLowerCase(), parsed.data.username.toLowerCase())
+      .first<{
+        id: string;
+        username: string;
+        email: string;
+        password_hash: string;
+        password_salt: string;
+        status: string;
+        status_reason: string | null;
+        balance_cents: number;
+        session_version: number;
+      }>(),
+  );
   if (!u) return fail(c, "invalid_credentials", "Username atau password salah.", 401);
 
   if (u.status !== "active") {
@@ -140,13 +143,13 @@ app.post("/login", async (c) => {
   const okPwd = await verifyPassword(parsed.data.password, u.password_salt, u.password_hash);
   if (!okPwd) return fail(c, "invalid_credentials", "Username atau password salah.", 401);
 
-  // Naikkan session_version supaya semua sesi lama lain di-invalidate (login dari device baru)
+  // Naikkan session_version supaya semua sesi lama lain di-invalidate (login dari device baru).
+  // UPDATE ... RETURNING menggabungkan tulis + baca versi baru jadi satu round-trip ke D1.
   const ts = now();
-  await c.env.DB.prepare("UPDATE users SET session_version = session_version + 1, updated_at = ? WHERE id = ?")
+  const newVerRow = await c.env.DB.prepare(
+    "UPDATE users SET session_version = session_version + 1, updated_at = ? WHERE id = ? RETURNING session_version",
+  )
     .bind(ts, u.id)
-    .run();
-  const newVerRow = await c.env.DB.prepare("SELECT session_version FROM users WHERE id = ?")
-    .bind(u.id)
     .first<{ session_version: number }>();
 
   const ttl = parseInt(c.env.SESSION_TTL_SECONDS, 10) || 3600;
@@ -156,13 +159,16 @@ app.post("/login", async (c) => {
   });
   setUserSessionCookie(c, created.token, ttl);
 
-  await audit(c.env, {
-    actorKind: "user",
-    actorId: u.id,
-    action: "user.login",
-    ip: c.get("ip"),
-    userAgent: c.get("userAgent"),
-  });
+  // Audit dijalankan di belakang layar agar respons login tidak menunggu tulis ini.
+  c.executionCtx.waitUntil(
+    audit(c.env, {
+      actorKind: "user",
+      actorId: u.id,
+      action: "user.login",
+      ip: c.get("ip"),
+      userAgent: c.get("userAgent"),
+    }),
+  );
 
   return ok(c, {
     user: {
