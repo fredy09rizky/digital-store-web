@@ -3,6 +3,7 @@ export interface AppBindings {
   KV: KVNamespace;
   R2: R2Bucket;
   ASSETS: Fetcher;
+  RATE_LIMITER: DurableObjectNamespace;
 
   APP_NAME: string;
   APP_ENV: string;

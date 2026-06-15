@@ -59,7 +59,7 @@ Web store fullstack untuk menjual akun premium dan item digital lainnya, dibangu
 | Bahasa | TypeScript 6 | Strict mode untuk worker dan client |
 | Database | Cloudflare D1 (SQLite) | FK aktif, relasi normalisasi |
 | Object storage | Cloudflare R2 | Thumbnail & galeri produk, bukti transfer |
-| Key-Value | Cloudflare KV | Sesi, OTP, rate limit, ack admin |
+| Key-Value | Cloudflare KV | Sesi, OTP, ack admin |
 | Frontend | React 19 + React Router 7 | Lazy route, SPA fallback Workers Assets |
 | Build tool | Vite 8 | Output ke `dist/client` |
 | Styling | Tailwind CSS 4 | Tema CSS-first via `@theme` di `styles.css` (design system "Aurora Noir", dark mode) |
@@ -86,6 +86,24 @@ Diagram singkat:
 
 ---
 
+## Pembagian penyimpanan (apa pakai apa)
+
+Ringkasan cepat agar mudah dijadikan rujukan: layanan mana menyimpan apa, dan kenapa.
+
+| Layanan | Dipakai untuk | Sifat |
+|---|---|---|
+| **D1** (SQL) | Data inti & transaksional: user, produk, stok, order, pembayaran, saldo, voucher, review, chat, audit, settings | Sumber kebenaran, permanen |
+| **KV** | Sesi login user/admin, OTP admin, token konfirmasi (ack) aksi sensitif admin | Sementara, ber-TTL, boleh hilang |
+| **Durable Object** (`RATE_LIMITER`) | Rate-limit / anti-spam: login, OTP, register, top-up, upload, cek-status pembayaran, support | Counter atomik & global per-key |
+| **R2** | File biner: thumbnail & galeri produk, bukti transfer manual | Objek/blob |
+
+Catatan kuota:
+
+- Rate-limit dulu memakai KV dan banyak menulis (terutama saat polling cek-status pembayaran tiap beberapa detik). Memindahkannya ke Durable Object **meringankan jatah tulis KV** secara signifikan; KV kini fokus pada sesi/OTP saja.
+- Ini **memindahkan** beban (bukan menghilangkan biaya): Durable Object punya jatah gratis yang jauh lebih longgar, jadi lebih sehat untuk skala kecil–menengah.
+
+---
+
 ## Struktur folder
 
 ```
@@ -100,7 +118,10 @@ digital-store-web-cf/
 │  ├─ 0007_unique_price_tier.sql
 │  ├─ 0008_drop_product_badges.sql
 │  ├─ 0009_max_wallet_balance.sql
-│  └─ 0010_drop_short_desc.sql
+│  ├─ 0010_drop_short_desc.sql
+│  ├─ 0011_chat_and_order_rework.sql
+│  ├─ 0012_drop_review_images.sql
+│  └─ 0013_drop_invalid_stock.sql
 ├─ seeds/                       # SQL seed kategori, settings, dan produk demo
 │  ├─ seed.sql
 │  └─ seed-products.sql
@@ -639,9 +660,9 @@ Log otomatis terlihat di `wrangler tail` dan bisa di-Logpush ke storage. Aturan:
 - Sesi disimpan di KV. Saat user/admin login dari device lain, `session_version` naik dan sesi lama otomatis invalid.
 - Frontend memantau sesi: setiap respons `401` sesi dan pengecekan berkala (tiap 3 menit) memunculkan popup "sesi berakhir" lalu mengarahkan user/admin ke halaman login, sehingga tidak ada aksi yang gagal diam-diam.
 - Cookie sesi `HttpOnly`, `Secure` (saat `APP_ENV=production`), `SameSite=Lax`.
-- Rate-limit di KV: login user, login admin, OTP, register, top-up, upload, support send, dan konfirmasi password admin.
+- Rate-limit via **Durable Object** (`RATE_LIMITER`): counter atomik & global per-key, tahan race saat request bersamaan. Dipakai untuk login user, login admin, OTP, register, top-up, upload, support send, dan konfirmasi password admin.
 - Konfirmasi password admin diperlukan untuk aksi sensitif (token sekali pakai TTL 5 menit).
-- Upload R2 di-batas 2MB dan tipe yang diizinkan (png, jpg, webp, gif).
+- Upload R2 dibatasi 2 MB dan tipe yang diizinkan (png, jpg, webp, gif). Tipe diverifikasi dari **isi file (magic bytes)**, bukan header dari client; folder tujuan dibatasi allow-list (folder produk hanya untuk admin).
 - Path R2 yang sensitif (mis. bukti transfer manual di `proofs/`) dilindungi oleh `/api/files`: hanya admin atau user pemilik order yang berhak melihatnya. File publik (thumbnail & galeri produk) tetap bisa diakses tanpa login.
 - Objek R2 dihapus otomatis (best-effort) agar tidak menumpuk: gambar produk saat produk diedit (gambar yang dibuang) atau dihapus, dan bukti transfer saat order dihapus atau di-cleanup.
 - Tidak ada error verbose yang membocorkan info sensitif. Pesan error pakai bahasa alami dan tidak memancarkan kolom internal seperti `status_reason`.

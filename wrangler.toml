@@ -45,6 +45,17 @@ id = "a54c426be32145e5b600b320abdc5d1d"
 binding = "R2"
 bucket_name = "digital-store-assets"
 
+# Durable Object untuk rate limiting atomik & global (login, OTP, register,
+# upload, cek-status). Menggantikan limiter berbasis KV yang best-effort.
+# SQLite-backed agar tersedia di Workers Free plan.
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiterDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiterDO"]
+
 # Variabel publik (override di .dev.vars / dashboard)
 [vars]
 APP_NAME = "Pasar Premium"

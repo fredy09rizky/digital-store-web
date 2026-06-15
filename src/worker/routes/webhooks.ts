@@ -95,8 +95,20 @@ app.post("/pakasir", async (c) => {
   }
 
   if (status === "completed" || status === "paid" || status === "success") {
+    // Webhook Pakasir tidak ditandatangani, jadi double-check ke
+    // transactiondetail WAJIB sebelum mark paid. Bila kredensial Pakasir
+    // belum di-set, kita TIDAK bisa memverifikasi — tolak (fail-closed)
+    // alih-alih mempercayai body mentah yang bisa dipalsukan.
+    if (!c.env.PAKASIR_API_KEY || !c.env.PAKASIR_PROJECT) {
+      logger.error({
+        event: "webhook.pakasir.not_configured",
+        msg: "Webhook completed ditolak: kredensial Pakasir belum di-set, tidak bisa verifikasi.",
+        meta: { code },
+      });
+      return c.json({ ok: false, error: "provider_not_configured" }, 503);
+    }
     // Double-check: panggil transactiondetail untuk memastikan benar paid.
-    if (c.env.PAKASIR_API_KEY && c.env.PAKASIR_PROJECT) {
+    {
       const usp = new URLSearchParams({
         project: c.env.PAKASIR_PROJECT,
         amount: String(amount),

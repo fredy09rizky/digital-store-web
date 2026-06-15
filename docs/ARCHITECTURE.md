@@ -32,7 +32,7 @@ Dokumen ini melengkapi `README.md` dengan detail arsitektur dan keputusan desain
 │ D1 (SQL)   │ KV         │ R2                                  │
 │ truth data │ session    │ aset (gambar)                       │
 │ orders,    │ otp        │                                     │
-│ inventory  │ rate limit │                                     │
+│ inventory  │ ack token  │                                     │
 └────────────┴────────────┴─────────────────────────────────────┘
 ```
 
@@ -40,7 +40,7 @@ Aturan ketat:
 
 - Frontend tidak pernah mengirim harga, total, diskon. Backend menghitung ulang dari ID produk + qty + voucher code.
 - Service layer adalah satu-satunya tempat aturan bisnis. Route hanya menerima input, validasi schema, panggil service, dan format response.
-- D1 menjadi single source of truth untuk data transaksional. KV hanya untuk hal yang boleh hilang (sesi, OTP, rate limit).
+- D1 menjadi single source of truth untuk data transaksional. KV hanya untuk hal yang boleh hilang (sesi, OTP, ack token). Rate limit dipindah ke Durable Object agar atomik & global.
 
 > **Lapisan presentasi (UI/UX).** Detail sistem desain frontend — token `@theme`,
 > komponen primitif, dark mode, pola notifikasi (Alert vs Toast), dan checklist
@@ -207,4 +207,21 @@ Untuk admin list yang biasanya kecil (kategori, voucher), pagination belum diter
 - `active_sess:user:<uid>` / `active_sess:admin:<uid>` → sid aktif terbaru.
 - `admin_otp:<ticket>` → state OTP login admin.
 - `admin_ack:<adminId>:<token>` → token konfirmasi password admin.
-- `rl:<area>:<scope>` → counter rate-limit (window-based).
+
+> Rate limit **tidak** lagi di KV. Sekarang ditangani Durable Object `RATE_LIMITER`
+> (lihat bagian "Rate limiting" di bawah).
+
+## Rate limiting (Durable Object)
+
+`lib/rate-limit.ts` membungkus pemanggilan ke Durable Object `RATE_LIMITER`
+(`lib/rate-limiter-do.ts`). Tiap key (mis. `rl:login:ip:<ip>`) dipetakan ke satu
+instance DO via `idFromName(key)`. Karena DO single-threaded & konsisten global,
+counter per-key bersifat atomik — bebas dari race read-modify-write yang mungkin
+terjadi di KV (eventually consistent). Parameter `windowSeconds` & `max` dikirim
+per-request, sehingga satu kelas melayani semua area (jendela 4s/60s/300s, dst).
+
+Counter disimpan in-memory: DO hidup selama key aktif diakses (akurat saat
+brute-force berlangsung); bila menganggur lama lalu di-evict, window memang sudah
+lewat. Jika DO tidak tersedia, `rateLimit()` fail-open (melewatkan limit sesaat &
+mencatat log) agar tidak memblokir total layanan. Binding & migrasi diatur di
+`wrangler.toml` (`new_sqlite_classes` agar jalan di Workers Free plan).

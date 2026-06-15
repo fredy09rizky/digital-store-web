@@ -1,8 +1,10 @@
 import type { AppBindings } from "../env";
+import { log } from "./log";
 
 /**
- * Sliding-ish token bucket sederhana berbasis KV.
- * Cukup untuk anti brute force pada endpoint sensitif (login, OTP).
+ * Rate limit atomik & global lewat Durable Object (lihat rate-limiter-do.ts).
+ * Interface dipertahankan sama persis dengan versi KV sebelumnya supaya semua
+ * pemanggil (login, OTP, register, upload, cek-status, dll) tidak perlu diubah.
  */
 export interface RateLimitOpts {
   key: string;
@@ -16,33 +18,18 @@ export interface RateLimitResult {
   resetIn: number;
 }
 
-interface Counter {
-  start: number;
-  count: number;
-}
-
 export async function rateLimit(bindings: AppBindings, opts: RateLimitOpts): Promise<RateLimitResult> {
-  const now = Math.floor(Date.now() / 1000);
-  const raw = await bindings.KV.get(opts.key);
-  let counter: Counter | null = null;
-  if (raw) {
-    try {
-      counter = JSON.parse(raw) as Counter;
-    } catch {
-      counter = null;
-    }
+  try {
+    const id = bindings.RATE_LIMITER.idFromName(opts.key);
+    const stub = bindings.RATE_LIMITER.get(id);
+    const url = `https://rate-limiter/?w=${opts.windowSeconds}&m=${opts.max}`;
+    const res = await stub.fetch(url);
+    return await res.json<RateLimitResult>();
+  } catch (err) {
+    // Fail-open bila DO bermasalah: lebih baik melewatkan rate-limit sesaat
+    // daripada memblokir total layanan (mis. semua user gagal login). Kejadian
+    // ini sangat jarang dan dicatat untuk investigasi.
+    log.error({ event: "ratelimit.do_unavailable", msg: "Rate limiter DO tidak tersedia.", err });
+    return { allowed: true, remaining: opts.max, resetIn: opts.windowSeconds };
   }
-  if (!counter || now - counter.start >= opts.windowSeconds) {
-    counter = { start: now, count: 0 };
-  }
-  if (counter.count >= opts.max) {
-    return { allowed: false, remaining: 0, resetIn: opts.windowSeconds - (now - counter.start) };
-  }
-  counter.count += 1;
-  // KV minimum TTL = 60s
-  const ttl = Math.max(60, opts.windowSeconds);
-  await bindings.KV.put(opts.key, JSON.stringify(counter), {
-    expirationTtl: ttl,
-  });
-  return { allowed: true, remaining: opts.max - counter.count, resetIn: opts.windowSeconds - (now - counter.start) };
 }

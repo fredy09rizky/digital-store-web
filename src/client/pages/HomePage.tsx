@@ -77,18 +77,12 @@ function Hero({ featured, cats }: { featured: PublicProductSummary[]; cats: Publ
   return (
     <section
       className="relative overflow-hidden rounded-[24px] text-white animate-fade-in"
-      style={{ background: "linear-gradient(135deg, #1b1547 0%, #2a1d6b 45%, #3a1f63 100%)" }}
+      style={{ backgroundColor: "#1b1547" }}
     >
-      {/* Aurora blobs */}
-      <div
-        className="aurora-blob absolute -top-20 -left-10 size-80 rounded-full"
-        style={{ background: "radial-gradient(circle, var(--color-aurora-1), transparent 70%)" }}
-      />
-      <div
-        className="aurora-blob absolute top-10 right-0 size-96 rounded-full"
-        style={{ background: "radial-gradient(circle, var(--color-aurora-3), transparent 70%)" }}
-      />
+      {/* Tekstur titik halus (bukan gradient) untuk memberi kedalaman */}
       <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" />
+      {/* Garis aksen tipis di tepi kiri sebagai penanda brand */}
+      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: "var(--color-accent-500)" }} />
 
       <div className="relative grid lg:grid-cols-[1.1fr_0.9fr] gap-8 lg:gap-10 items-center p-6 sm:p-9 lg:p-12">
         <div className="min-w-0">
@@ -102,12 +96,7 @@ function Hero({ featured, cats }: { featured: PublicProductSummary[]; cats: Publ
           >
             Akun premium,
             <br />{" "}
-            <span
-              className="bg-clip-text text-transparent"
-              style={{ backgroundImage: "linear-gradient(90deg, #c4b5ff, #f0a6e0)" }}
-            >
-              terkirim instan.
-            </span>
+            <span style={{ color: "#c4b5ff" }}>terkirim instan.</span>
           </h1>
           <p className="mt-3 sm:mt-4 text-white/80 max-w-xl text-sm sm:text-base leading-relaxed">
             Streaming, AI, produktivitas, sampai tools developer. Setiap akun dijamin valid dan
@@ -135,7 +124,7 @@ function Hero({ featured, cats }: { featured: PublicProductSummary[]; cats: Publ
             <button
               type="submit"
               className="m-1.5 inline-flex items-center gap-1.5 px-4 sm:px-5 rounded-full text-sm font-semibold text-white"
-              style={{ background: "linear-gradient(135deg, var(--color-aurora-1), var(--color-aurora-3))" }}
+              style={{ backgroundColor: "var(--color-brand-500)" }}
             >
               Cari <ArrowRight size={15} />
             </button>

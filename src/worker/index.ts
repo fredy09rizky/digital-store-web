@@ -28,6 +28,9 @@ import adminSettingsRoutes from "./routes/admin/settings";
 import webhooksRoutes from "./routes/webhooks";
 import { expireAllDueOrders } from "./services/order";
 
+// Durable Object untuk rate limiting atomik & global (binding RATE_LIMITER).
+export { RateLimiterDO } from "./lib/rate-limiter-do";
+
 const app = new Hono<AppContext>({ strict: false });
 
 app.use("*", attachContext);

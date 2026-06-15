@@ -58,13 +58,16 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Hash password sederhana berbasis SHA-256 dengan stretching.
- * Tidak bergantung pada module Node, aman di Workers.
+ * Hash password berbasis PBKDF2-HMAC-SHA256 (Web Crypto, aman di Workers,
+ * tanpa dependensi Node).
  *
- *   storage = format `v1:<salt_hex>:<hash_hex>`
+ * Penyimpanan: `hash` (hex) dan `salt` (hex) disimpan di kolom terpisah
+ * (`users.password_hash` / `users.password_salt`). Tidak ada prefix/format
+ * gabungan — verifikasi men-derive ulang dari salt tersimpan.
  *
- * Catatan: lebih kuat dari plain SHA, kurang kuat dari Argon2.
- * Cukup untuk konteks aplikasi web standar di Workers.
+ * Catatan: lebih kuat dari plain SHA, lebih lemah dari Argon2/scrypt. Jumlah
+ * iterasi (PASS_ITER) di bawah rekomendasi OWASP terbaru untuk PBKDF2-SHA256
+ * (lihat docs/recommendations bila ingin menaikkan + skema migrasi rehash).
  */
 const PASS_ITER = 50_000;
 
