@@ -305,10 +305,10 @@ Lima status: `pending_payment` (warning), `paid` (success), `expired` (ink-3),
 `cancelled` (danger), `refunded` (brand). Tone pakai `color-mix` token sehingga
 konsisten light/dark. Jangan bikin map status pill baru per halaman.
 
-Akun terkirim (`DeliveredItem`/`CredField`) di success page dan order detail:
-tampilkan dengan pola kartu yang sama (label produk uppercase, kredensial mono,
-tombol show/hide untuk password + copy). Invoice **tidak** menampilkan kredensial
-(alasan keamanan); cukup catatan bahwa akun bisa dilihat di halaman pesanan.
+Item terkirim (`DeliveredItem`) di **detail pesanan**: konten stok ditampilkan apa
+adanya dalam blok teks mono (`<pre>` pre-wrap) dengan tombol show/hide + copy.
+Halaman sukses & invoice **tidak** menampilkan konten (alasan keamanan); cukup arahkan
+ke halaman pesanan.
 
 ---
 
