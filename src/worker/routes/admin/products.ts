@@ -8,7 +8,7 @@ import { nanoId, skuFromName } from "../../lib/id";
 import { audit } from "../../lib/audit";
 import { buildPage, parsePagination } from "../../lib/pagination";
 import { hasActiveReservations } from "../../services/inventory-reserve";
-import { parseInventoryText } from "../../services/inventory-parser";
+import { splitStockInput, STOCK_ITEM_MAX_CHARS, STOCK_BULK_MAX_ITEMS } from "../../../shared/stock";
 import { noEmoji, NO_EMOJI_MSG, firstIssueMessage, imageUrlSchema } from "../../lib/validation";
 import { deleteFileObjects } from "../../lib/r2";
 
@@ -268,28 +268,50 @@ app.delete("/:id", async (c) => {
   return ok(c, { ok: true });
 });
 
-// Stok endpoints
+// Stok endpoints — "konten bebas" tanpa parsing. Tiap item = satu blok teks
+// apa adanya (maks 2000 char). Mode single (1 item) atau multiple (banyak, dipisah
+// penanda). Pemecahan memakai util bersama agar identik dengan pratinjau di client.
 const StockUploadBody = z.object({
   productId: z.string().min(1),
-  text: z.string().min(1).max(2_000_000),
+  text: z.string().min(1).max(2_200_000),
+  mode: z.enum(["single", "multiple"]).default("single"),
+  separator: z.enum(["newline", "blankline", "custom"]).default("newline"),
+  customToken: z.string().max(100).optional().default(""),
 });
 
 app.post("/stock/upload", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = StockUploadBody.safeParse(body);
   if (!parsed.success) return fail(c, "validation", "Input tidak valid.");
-  const result = parseInventoryText(parsed.data.text);
-  if (!result.ok)
-    return fail(c, "parse_failed", "Beberapa baris tidak valid.", 400, {
-      errors: result.errors,
-      validCount: result.items.length,
-    });
-  if (result.items.length === 0) return fail(c, "empty", "Tidak ada item valid.");
 
-  // Batas maksimal stok per produk. Yang dihitung adalah stok "hidup"
-  // (available + reserved); sold (historis) dan invalid (dinonaktifkan) tidak
-  // ikut. Default 1000, dapat dinaikkan lewat MAX_STOCK_PER_PRODUCT di
-  // wrangler.toml lalu deploy ulang.
+  const { items, tooLong } = splitStockInput(
+    parsed.data.text,
+    parsed.data.mode,
+    parsed.data.separator,
+    parsed.data.customToken,
+  );
+  if (items.length === 0) return fail(c, "empty", "Tidak ada item stok terdeteksi.");
+  if (tooLong.length > 0) {
+    return fail(
+      c,
+      "item_too_long",
+      `Stok ke-${tooLong[0]} melebihi ${STOCK_ITEM_MAX_CHARS.toLocaleString("id-ID")} karakter.`,
+      400,
+      { tooLong, max: STOCK_ITEM_MAX_CHARS },
+    );
+  }
+  if (items.length > STOCK_BULK_MAX_ITEMS) {
+    return fail(
+      c,
+      "too_many_items",
+      `Maksimal ${STOCK_BULK_MAX_ITEMS.toLocaleString("id-ID")} stok per sekali input (terdeteksi ${items.length.toLocaleString("id-ID")}). Bagi jadi beberapa kali input.`,
+      400,
+      { max: STOCK_BULK_MAX_ITEMS, attempted: items.length },
+    );
+  }
+
+  // Batas kuota total per produk = stok "hidup" (available + reserved); sold
+  // (historis) tidak dihitung. Default 1000 via MAX_STOCK_PER_PRODUCT.
   const maxStock = envInt(c.env.MAX_STOCK_PER_PRODUCT, 1000);
   const liveRow = await c.env.DB.prepare(
     "SELECT COUNT(*) AS c FROM product_inventory_items WHERE product_id = ? AND status IN ('available','reserved')",
@@ -297,46 +319,47 @@ app.post("/stock/upload", async (c) => {
     .bind(parsed.data.productId)
     .first<{ c: number }>();
   const live = liveRow?.c ?? 0;
-  if (live + result.items.length > maxStock) {
+  if (live + items.length > maxStock) {
     const remaining = Math.max(0, maxStock - live);
     return fail(
       c,
       "stock_limit_exceeded",
       `Melebihi batas stok. Sisa kuota ${remaining.toLocaleString("id-ID")} dari maks ${maxStock.toLocaleString("id-ID")} item.`,
       400,
-      { max: maxStock, live, remaining, attempted: result.items.length },
+      { max: maxStock, live, remaining, attempted: items.length },
     );
   }
 
+  // Simpan via INSERT banyak-baris ber-chunk dalam satu batch (atomik & cepat).
+  // Bind per baris hanya id, product_id, payload_content (3 param); ts (integer)
+  // serta literal 'available' di-inline agar hemat parameter (limit D1 100/query).
   const ts = now();
-  // Insert dalam batch
-  for (const it of result.items) {
-    await c.env.DB.prepare(
-      `INSERT INTO product_inventory_items (id, product_id, payload_email, payload_password, payload_note, payload_expiry, payload_extra, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`,
-    )
-      .bind(
-        nanoId("inv"),
-        parsed.data.productId,
-        it.email,
-        it.password,
-        it.note ?? null,
-        it.expiry ?? null,
-        it.extra ?? null,
-        ts,
-        ts,
-      )
-      .run();
+  const CHUNK = 25;
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = 0; i < items.length; i += CHUNK) {
+    const chunk = items.slice(i, i + CHUNK);
+    const values = chunk.map(() => `(?, ?, ?, 'available', ${ts}, ${ts})`).join(", ");
+    const binds: unknown[] = [];
+    for (const content of chunk) binds.push(nanoId("inv"), parsed.data.productId, content);
+    stmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO product_inventory_items
+           (id, product_id, payload_content, status, created_at, updated_at)
+         VALUES ${values}`,
+      ).bind(...binds),
+    );
   }
+  await c.env.DB.batch(stmts);
+
   await audit(c.env, {
     actorKind: "admin",
     actorId: c.get("admin")!.id,
     action: "admin.stock.upload",
     targetKind: "product",
     targetId: parsed.data.productId,
-    meta: { added: result.items.length },
+    meta: { added: items.length },
   });
-  return ok(c, { added: result.items.length });
+  return ok(c, { added: items.length });
 });
 
 app.get("/:id/stock", async (c) => {
@@ -345,8 +368,7 @@ app.get("/:id/stock", async (c) => {
 
   const [rows, total, statsRows] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT id, payload_email, payload_password, payload_note, payload_expiry, payload_extra, status,
-              reserved_for_order_id, sold_to_order_id, created_at
+      `SELECT id, payload_content, status, reserved_for_order_id, sold_to_order_id, created_at
          FROM product_inventory_items WHERE product_id = ?
         ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     )
@@ -376,7 +398,20 @@ app.get("/:id/stock", async (c) => {
     }
   }
 
-  return ok(c, { ...buildPage(rows.results ?? [], total?.c ?? 0, p), stats });
+  // Stok kini selalu konten bebas (payload_content).
+  const items = (rows.results ?? []).map((r: any) => ({
+    id: r.id,
+    content: r.payload_content,
+    status: r.status,
+    reserved_for_order_id: r.reserved_for_order_id,
+    sold_to_order_id: r.sold_to_order_id,
+    created_at: r.created_at,
+  }));
+
+  const maxStock = envInt(c.env.MAX_STOCK_PER_PRODUCT, 1000);
+  const remaining = Math.max(0, maxStock - (stats.available + stats.reserved));
+
+  return ok(c, { ...buildPage(items, total?.c ?? 0, p), stats, maxStock, remaining });
 });
 
 const DeleteStockBody = z.object({ ids: z.array(z.string()).min(1).max(200) });

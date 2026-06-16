@@ -56,11 +56,7 @@ interface PaymentInfo {
 interface InvItem {
   id: string;
   productName: string | null;
-  payloadEmail: string;
-  payloadPassword: string;
-  payloadNote: string | null;
-  payloadExpiry: string | null;
-  payloadExtra: string | null;
+  content: string;
   status: string;
 }
 
@@ -419,16 +415,13 @@ function AccountCard({ it }: { it: InvItem }) {
         </div>
       </div>
       <div className="space-y-1.5">
-        <CredRow icon={Mail} value={it.payloadEmail} />
-        <CredRow icon={Lock} value={it.payloadPassword} masked={!show} />
-        {it.payloadNote && (
-          <div className="text-xs text-[var(--color-ink-2)] inline-flex items-center gap-1.5">
-            <StickyNote size={11} /> {it.payloadNote}
-          </div>
-        )}
-        {it.payloadExpiry && (
-          <div className="text-xs text-[var(--color-ink-2)] inline-flex items-center gap-1.5">
-            <Calendar size={11} /> {it.payloadExpiry}
+        {show ? (
+          <pre className="text-xs whitespace-pre-wrap break-all font-mono text-[var(--color-ink)] max-h-72 overflow-auto bg-[var(--color-surface-soft)] border border-[var(--color-border)] rounded-md p-2">
+            {it.content}
+          </pre>
+        ) : (
+          <div className="text-xs font-mono text-[var(--color-ink-3)]">
+            •••••••••• (klik ikon mata untuk menampilkan)
           </div>
         )}
       </div>

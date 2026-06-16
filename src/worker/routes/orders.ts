@@ -78,7 +78,7 @@ async function loadOrderDetail(env: AppContext["Bindings"], userId: string, idOr
       .all<any>(),
     env.DB.prepare("SELECT * FROM payments WHERE order_id = ?").bind(o.id).first<any>(),
     env.DB.prepare(
-      `SELECT id, payload_email, payload_password, payload_note, payload_expiry, payload_extra,
+      `SELECT id, payload_content,
               (SELECT name FROM products WHERE id = product_inventory_items.product_id) AS product_name
          FROM product_inventory_items
         WHERE sold_to_order_id = ?
@@ -139,11 +139,7 @@ async function loadOrderDetail(env: AppContext["Bindings"], userId: string, idOr
     deliveredItems: (delivered.results ?? []).map((d: any) => ({
       id: d.id,
       productName: d.product_name,
-      payloadEmail: d.payload_email,
-      payloadPassword: d.payload_password,
-      payloadNote: d.payload_note,
-      payloadExpiry: d.payload_expiry,
-      payloadExtra: d.payload_extra,
+      content: d.payload_content,
     })),
     refundChat: chat ? { id: chat.id, status: chat.status } : null,
     refundRequestedAt: o.refund_requested_at ?? null,

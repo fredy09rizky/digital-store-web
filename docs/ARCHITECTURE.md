@@ -117,17 +117,23 @@ Skenario uji manual yang membuktikan tidak ada double-sell:
 - Resend dibatasi: cooldown `ADMIN_OTP_RESEND_COOLDOWN`, maksimal `ADMIN_OTP_MAX_RESENDS` per ticket.
 - Verifikasi OTP membatalkan ticket dan menerbitkan sesi admin baru. Token ack untuk aksi sensitif diterbitkan oleh `confirm-password` (sekali pakai, TTL 5 menit).
 
-## Inventory parser
+## Stok (konten bebas)
 
-Parser di `services/inventory-parser.ts` mendukung:
+Sejak migrasi `0015`, stok disimpan **apa adanya tanpa parsing** dan **hanya** di
+kolom `payload_content` (NOT NULL) — format akun lama dihapus. Tiap baris
+`product_inventory_items` adalah satu unit jual (maks 2000 karakter), dikirim
+verbatim ke pembeli.
 
-- Pemisah `|`.
-- Field minimal: `email|password`.
-- Tambahan: `note`, `expiry`, dan _extras_ (apa pun setelah expiry digabung kembali dengan `|`).
-- Whitespace di-trim per field.
-- Baris kosong dan diawali `#` diabaikan sebagai komentar.
-
-Parser mengembalikan `errors[]` yang menunjukkan baris bermasalah; UI admin menampilkan error tersebut.
+- Pemecahan input (single/multiple + pemisah newline/blankline/custom) ada di
+  util bersama `src/shared/stock.ts` (`splitStockInput`), dipakai **identik** oleh
+  client (pratinjau real-time) dan worker (sumber kebenaran).
+- Batas: 2000 char/stok (`STOCK_ITEM_MAX_CHARS`), 1000 stok/sekali input
+  (`STOCK_BULK_MAX_ITEMS`), plus kuota total `MAX_STOCK_PER_PRODUCT`.
+- Penyimpanan: INSERT banyak-baris ber-chunk (±25 baris/statement) dalam satu
+  `DB.batch()` agar hemat parameter (limit D1 100/query) & tetap di bawah limit
+  query per-invocation.
+- Mesin reservasi atomik tidak terpengaruh (hanya membalik status, tidak peduli
+  isi konten).
 
 ## Provider abstraction
 

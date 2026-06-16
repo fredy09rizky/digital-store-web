@@ -102,11 +102,8 @@ export interface OrderListItem {
 export interface DeliveredItem {
   id: string;
   productName: string;
-  payloadEmail: string;
-  payloadPassword: string;
-  payloadNote: string | null;
-  payloadExpiry: string | null;
-  payloadExtra: string | null;
+  // Konten stok dikirim apa adanya (verbatim). Stok kini selalu format bebas.
+  content: string;
 }
 
 export interface OrderDetail {

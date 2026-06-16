@@ -176,15 +176,7 @@ export default function OrderDetailPage() {
             </div>
             <ul className="space-y-2">
               {o.deliveredItems.map((d) => (
-                <DeliveredItem
-                  key={d.id}
-                  productName={d.productName}
-                  email={d.payloadEmail}
-                  password={d.payloadPassword}
-                  note={d.payloadNote}
-                  expiry={d.payloadExpiry}
-                  extra={d.payloadExtra}
-                />
+                <DeliveredItem key={d.id} item={d} />
               ))}
             </ul>
           </div>
@@ -340,49 +332,21 @@ function Stat({
   );
 }
 
-function DeliveredItem({
-  productName,
-  email,
-  password,
-  note,
-  expiry,
-  extra,
-}: {
-  productName: string;
-  email: string;
-  password: string;
-  note: string | null;
-  expiry: string | null;
-  extra: string | null;
-}) {
+function DeliveredItem({ item }: { item: OrderDetail["deliveredItems"][number] }) {
   return (
     <li className="rounded-lg bg-[var(--color-surface-soft)] border border-[var(--color-border)] p-3">
       <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-brand-700)] mb-2">
-        {productName}
+        {item.productName}
       </div>
-      <div className="grid sm:grid-cols-2 gap-2">
-        <CredField label="Email / Akun" value={email} mono />
-        <CredField label="Password" value={password} mono secret />
-        {note && <CredField label="Catatan" value={note} />}
-        {expiry && <CredField label="Expired" value={expiry} />}
-        {extra && <CredField label="Tambahan" value={extra} />}
-      </div>
+      <ContentField value={item.content} />
     </li>
   );
 }
 
-function CredField({
-  label,
-  value,
-  mono,
-  secret,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  secret?: boolean;
-}) {
-  const [show, setShow] = useState(!secret);
+// Konten stok format bebas: ditampilkan apa adanya (verbatim). Disembunyikan
+// default karena bisa memuat kredensial; tombol tampilkan + salin.
+function ContentField({ value }: { value: string }) {
+  const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
   const toast = useToast();
   async function copy() {
@@ -396,19 +360,11 @@ function CredField({
   }
   return (
     <div className="rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-3)]">
-        {label}
-      </div>
-      <div className="flex items-center gap-1 mt-1">
-        <div
-          className={
-            "text-sm flex-1 min-w-0 break-all text-[var(--color-ink)] " +
-            (mono ? "font-mono" : "")
-          }
-        >
-          {show ? value : "••••••••••"}
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-3)]">
+          Data pesanan
         </div>
-        {secret && (
+        <div className="flex items-center gap-1">
           <IconButton
             icon={show ? EyeOff : Eye}
             label={show ? "Sembunyikan" : "Tampilkan"}
@@ -416,15 +372,24 @@ function CredField({
             className="!size-7"
             onClick={() => setShow((v) => !v)}
           />
-        )}
-        <IconButton
-          icon={copied ? Check : Copy}
-          label={copied ? "Disalin" : "Salin"}
-          size={13}
-          className={"!size-7 " + (copied ? "!text-[var(--color-success)]" : "")}
-          onClick={copy}
-        />
+          <IconButton
+            icon={copied ? Check : Copy}
+            label={copied ? "Disalin" : "Salin"}
+            size={13}
+            className={"!size-7 " + (copied ? "!text-[var(--color-success)]" : "")}
+            onClick={copy}
+          />
+        </div>
       </div>
+      {show ? (
+        <pre className="text-sm whitespace-pre-wrap break-all font-mono text-[var(--color-ink)] max-h-80 overflow-auto">
+          {value}
+        </pre>
+      ) : (
+        <div className="text-sm font-mono text-[var(--color-ink-3)]">
+          •••••••••• (klik ikon mata untuk menampilkan)
+        </div>
+      )}
     </div>
   );
 }

@@ -121,7 +121,9 @@ digital-store-web-cf/
 │  ├─ 0010_drop_short_desc.sql
 │  ├─ 0011_chat_and_order_rework.sql
 │  ├─ 0012_drop_review_images.sql
-│  └─ 0013_drop_invalid_stock.sql
+│  ├─ 0013_drop_invalid_stock.sql
+│  ├─ 0014_inventory_payload_content.sql
+│  └─ 0015_inventory_content_only.sql
 ├─ seeds/                       # SQL seed kategori, settings, dan produk demo
 │  ├─ seed.sql
 │  └─ seed-products.sql
@@ -315,6 +317,8 @@ Migrasi yang tersedia:
 - `0011_chat_and_order_rework.sql` — (a) tambah `orders.kind` (`purchase`/`topup`) + `orders.refund_requested_at`; top up disembunyikan dari daftar pesanan dan tidak bisa direfund; (b) rebuild `support_chats`: `order_id` jadi nullable + kolom `kind` (`refund`/`support`), hapus `cleanup_at`, data chat lama dikosongkan; (c) setting `chat_retention_hours` (default 24) dan `audit_log_retention_days` dipaksa ke 30.
 - `0012_drop_review_images.sql` — hapus tabel `review_images`. Fitur foto review dihapus; review kini teks saja.
 - `0013_drop_invalid_stock.sql` — hapus baris stok ber-status `invalid`. Fitur "tandai invalid" diganti "hapus stok" (menghapus item `available` permanen); status `invalid` tidak lagi dipakai.
+- `0014_inventory_payload_content.sql` — tambah kolom `product_inventory_items.payload_content` (langkah transisi menuju stok "konten bebas").
+- `0015_inventory_content_only.sql` — rebuild `product_inventory_items` jadi **konten-saja**: `payload_content NOT NULL`, buang kolom akun lama (`payload_email`/`password`/`note`/`expiry`/`extra`). Kompatibilitas stok lama dihapus. **DROP+CREATE** menghapus baris stok lama (disengaja). Stok kini selalu disimpan & dikirim apa adanya (maks 2000 char/stok).
 
 ---
 
@@ -431,28 +435,30 @@ Klik ganda dan refresh tidak akan melahirkan order ganda karena order baru menye
 
 ## Sistem stok & format upload
 
-Stok per produk disimpan per item nyata di `product_inventory_items`. Admin menambah stok via halaman Stok Produk:
+Stok per produk disimpan per item nyata di `product_inventory_items`. Tiap item =
+**satu blok konten bebas** yang disimpan & dikirim **apa adanya (tanpa parsing)** —
+bisa berupa akun, kode, link redeem, atau teks panjang. Maksimal
+**2000 karakter** per stok. Admin menambah stok via halaman Stok Produk dengan dua
+mode:
 
-- Paste teks atau import file `.txt`.
-- Format: satu baris satu item, pemisah `|`.
-- Field minimal: `email|password`. Tambahan opsional: `email|password|note|expired|extras...`.
-- Whitespace di-trim. Baris kosong dan baris diawali `#` diabaikan.
-- Parser fleksibel terhadap field tambahan (extras digabung ulang dengan `|`).
+- **Satu stok (single):** satu kotak teks = satu stok. Pas untuk data panjang/multi-baris.
+- **Banyak stok (multiple):** banyak stok sekaligus, dipisah penanda yang dipilih:
+  - **Baris baru** — 1 baris = 1 stok (cocok untuk kode/link/akun satu-baris).
+  - **Baris kosong** — stok dipisah oleh baris kosong.
+  - **Penanda khusus** — baris berisi token tertentu (mis. `===STOK===`) sebagai
+    pemisah; cocok untuk konten multi-baris.
 
-Contoh:
-
-```
-# komentar
-user1@mail.com|password123|2FA off|2026-12-31
-user2@mail.com|S3cret|extra info
-example.com:rendahbanget|catatan
-```
+  Pratinjau real-time menampilkan jumlah stok terdeteksi + peringatan (stok >2000
+  karakter / melebihi kuota / melebihi batas sekali input) sebelum disimpan.
 
 Aturan:
 
-- Stok tidak bisa hanya berupa angka; admin harus mengupload data nyata.
+- Stok disimpan verbatim; tidak ada validasi format isi. Konten ditampilkan ke
+  pembeli sebagai teks (di-escape, aman dari XSS) dengan tombol salin & show/hide.
 - Stok aktif = jumlah baris dengan status `available`. `reserved` dan `sold` tidak ditampilkan ke katalog.
-- Batas maksimal stok hidup (available + reserved) per produk dijaga oleh `MAX_STOCK_PER_PRODUCT` (default 1000). Upload yang membuat stok hidup melewati batas ditolak dengan kode `stock_limit_exceeded` yang menyebut sisa kuota. `sold` (historis) tidak dihitung terhadap batas. Untuk menaikkan batas, ubah `MAX_STOCK_PER_PRODUCT` di `wrangler.toml` lalu deploy ulang.
+- Batas **kuota total** stok hidup (available + reserved) per produk dijaga oleh `MAX_STOCK_PER_PRODUCT` (default 1000). Upload yang melewati batas ditolak dengan kode `stock_limit_exceeded` (menyebut sisa kuota). `sold` (historis) tidak dihitung. Naikkan lewat `MAX_STOCK_PER_PRODUCT` di `wrangler.toml` lalu deploy ulang.
+- Batas **teknis sekali input** = 1000 stok (`STOCK_BULK_MAX_ITEMS` di `src/shared/stock.ts`), agar aman di limit D1 (paket Free 50 query/invocation) & request tetap cepat. Kalau kuota sisa lebih besar, input beberapa kali. Penyimpanan memakai INSERT banyak-baris ber-chunk dalam satu batch.
+- Stok disimpan **hanya** di kolom `payload_content` (NOT NULL sejak migrasi `0015`). Tidak ada lagi format akun lama (`email`/`password`) — kompatibilitas dihapus.
 - Halaman Stok Produk admin menampilkan daftar item dengan **pagination** (50 per halaman). Statistik Total/Available/Reserved/Sold dihitung di server lewat agregasi `GROUP BY status`, jadi akurat lepas dari halaman yang sedang dibuka.
 - Admin bisa menghapus stok terpilih (satu atau semua dalam satu halaman). **Hanya item `available` yang bisa dihapus** — item `reserved` (order berjalan) dan `sold` (sudah dibeli user, tampil di riwayat pesanan) tidak terpengaruh.
 - Saat ada reservasi aktif, edit produk dikunci (`locked`). Hapus reservasi lewat order expired/cancel sebelum mengubah produk.
@@ -718,8 +724,10 @@ Admin:
 **OTP admin tidak masuk Telegram.**
 Pastikan `TELEGRAM_BOT_TOKEN` valid dan `TELEGRAM_CHAT_ID` adalah chat ID milik admin (gunakan @userinfobot atau panggil `getUpdates` sekali setelah mengirim pesan ke bot). Saat dev, kode OTP juga tampil di console Wrangler.
 
-**Saat upload stok muncul `parse_failed`.**
-Cek detail error per baris yang dikembalikan di `details.errors`. Pastikan tiap baris minimal `email|password` dan tidak menggunakan pemisah lain.
+**Gagal menambah stok (`item_too_long` / `too_many_items` / `stock_limit_exceeded`).**
+- `item_too_long`: ada stok yang melebihi 2000 karakter — pesan menyebut stok ke berapa.
+- `too_many_items`: lebih dari 1000 stok dalam sekali input — bagi jadi beberapa kali.
+- `stock_limit_exceeded`: melebihi kuota total produk (`MAX_STOCK_PER_PRODUCT`) — kurangi jumlah atau naikkan batas. Pratinjau di mode "Banyak stok" menampilkan peringatan ini sebelum submit.
 
 **Order pending tidak otomatis expired.**
 - Di production, cron `* * * * *` menjalankan handler `scheduled` setiap menit.

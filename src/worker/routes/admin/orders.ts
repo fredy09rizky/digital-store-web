@@ -76,7 +76,7 @@ app.get("/:id", async (c) => {
       .all<any>(),
     c.env.DB.prepare("SELECT * FROM payments WHERE order_id = ?").bind(id).first<any>(),
     c.env.DB.prepare(
-      `SELECT i.id, i.payload_email, i.payload_password, i.payload_note, i.payload_expiry, i.payload_extra, i.status,
+      `SELECT i.id, i.payload_content, i.status,
               (SELECT name FROM products WHERE id = i.product_id) AS product_name
          FROM product_inventory_items i
         WHERE i.sold_to_order_id = ? OR i.reserved_for_order_id = ?
@@ -126,11 +126,7 @@ app.get("/:id", async (c) => {
     inventory: (inv.results ?? []).map((d: any) => ({
       id: d.id,
       productName: d.product_name,
-      payloadEmail: d.payload_email,
-      payloadPassword: d.payload_password,
-      payloadNote: d.payload_note,
-      payloadExpiry: d.payload_expiry,
-      payloadExtra: d.payload_extra,
+      content: d.payload_content,
       status: d.status,
     })),
   });
