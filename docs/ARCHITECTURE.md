@@ -201,6 +201,30 @@ Untuk admin list yang biasanya kecil (kategori, voucher), pagination belum diter
 
 `loggerFor(c)` di `lib/log.ts` membungkus konteks request (`requestId`, `userId`, `adminId`, `path`, `method`, `ip`) dan menulis JSON satu baris ke `console.*`. `log` global dipakai di `scheduled` handler dan tempat tanpa `Context`. Tidak dependen pada library eksternal, dan langsung kompatibel dengan `wrangler tail` & Logpush.
 
+## Penanganan error & ketahanan D1
+
+D1 sesekali melempar error **transien** (bukan bug aplikasi), mis.
+`D1_ERROR: D1 DB storage operation exceeded timeout which caused object to be reset`
+atau `Network connection lost`. Tanpa penanganan, satu kejadian langsung muncul
+sebagai "Internal Server Error" mentah ke user. Dua lapis pertahanan:
+
+1. **Retry transien** — `withD1Retry()` di `lib/d1.ts` mengulang operasi yang
+   aman diulang (baca, atau tulis idempoten) hingga 3x dengan backoff linear
+   kecil saat error cocok pola transien (`isTransientD1Error`). Dipakai di
+   `middleware/auth.ts` (memuat user/admin tiap request) dan lookup user saat
+   login. **Jangan** membungkus operasi non-idempoten yang berefek samping ganda
+   bila diulang (mis. increment, insert tanpa UNIQUE/`OR IGNORE`).
+2. **Penangan error global** — `app.onError` di `worker/index.ts` mencatat semua
+   error tak tertangani secara terstruktur (`request.transient_error` /
+   `request.unhandled_error` dengan `requestId`, `path`, `method`), lalu membalas:
+   error transien → **503** `service_busy` ("coba lagi"); selain itu → **500**
+   `internal`. Tidak ada lagi 500 telanjang, dan penyebab pasti bisa ditelusuri
+   lewat `wrangler tail`.
+
+Optimasi terkait di jalur login (`routes/auth.ts`): update + baca `session_version`
+digabung jadi `UPDATE ... RETURNING` (hemat satu round-trip), dan tulis audit
+dijalankan via `c.executionCtx.waitUntil(...)` agar respons tidak menunggu I/O itu.
+
 ## Skema penyimpanan KV
 
 - `sess:<kind>:<sid>` → JSON sesi (TTL = TTL sesi).

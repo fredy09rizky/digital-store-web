@@ -153,7 +153,7 @@ digital-store-web-cf/
 │     ├─ index.ts               # Entry worker (fetch + scheduled)
 │     ├─ env.ts                 # Tipe binding & context
 │     ├─ middleware/            # auth, common, maintenance
-│     ├─ lib/                   # hash, session, rate-limit, audit, ...
+│     ├─ lib/                   # hash, session, rate-limit (+ rate-limiter-do), d1 (retry), audit, ...
 │     ├─ services/              # order, voucher, pricing, telegram, ...
 │     ├─ services/payment/      # Pakasir provider (QRIS only)
 │     └─ routes/                # Rute API per modul
@@ -651,6 +651,8 @@ Helper `loggerFor(c)` dan `log` global di `src/worker/lib/log.ts` menulis log JS
 
 Log otomatis terlihat di `wrangler tail` dan bisa di-Logpush ke storage. Aturan: jangan log nilai sensitif. Field metadata cukup berisi ID atau counter, bukan password / token / payload pembayaran.
 
+**Penanganan error.** Worker punya `app.onError` global: error D1 **transien** (mis. `storage operation exceeded timeout`/`object to be reset`) dibalas **503** `service_busy` ("coba lagi"), error lain **500** `internal` — tidak ada "Internal Server Error" telanjang. Operasi baca kritis (memuat sesi tiap request, lookup login) otomatis **di-retry** saat error transien lewat `withD1Retry()` (`lib/d1.ts`). Detail di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#penanganan-error--ketahanan-d1).
+
 ---
 
 ## Keamanan
@@ -725,6 +727,9 @@ Cek detail error per baris yang dikembalikan di `details.errors`. Pastikan tiap 
 
 **`Internal Server Error` saat login pertama.**
 Pastikan `SESSION_SECRET` di `.dev.vars` (lokal) atau secret (production) sudah ter-set dengan string panjang.
+
+**Login sesekali balas `503` / "Sistem sedang sibuk sesaat".**
+Itu error D1 transien (mis. `storage operation exceeded timeout ... object to be reset`) yang sudah ditangani: operasi baca di-retry otomatis, dan kalau masih gagal user dapat 503 yang bisa diulang (bukan 500 mentah). Wajar muncul sesekali. Cek `npx wrangler tail` dan cari event `request.transient_error`. Kalau **sering**, pertimbangkan menaikkan jumlah retry di `lib/d1.ts` atau mengurangi query berurutan di endpoint terkait.
 
 **Edit produk ditolak `locked`.**
 Itu artinya masih ada reservasi aktif. Tunggu order pending expired atau cancel order tersebut.
