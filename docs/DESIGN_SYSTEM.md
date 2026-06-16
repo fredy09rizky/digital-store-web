@@ -37,7 +37,10 @@ Prinsip yang dipegang di seluruh halaman:
 
 ## 2. Tema light & dark
 
-- Default **light**, dengan **dark mode penuh** via class `.dark` pada `<html>`.
+- **Default mengikuti sistem** (`prefers-color-scheme` perangkat): pengunjung baru
+  yang perangkatnya dark mode akan melihat tampilan gelap, selain itu terang.
+  Dark mode penuh tersedia via class `.dark` pada `<html>`. Begitu user menekan
+  toggle, pilihannya (`light`/`dark`) disimpan & dipakai untuk kunjungan berikutnya.
 - Dikelola di `src/client/lib/theme.ts`:
   - mode tersimpan di `localStorage` key `pp-theme`: `"light" | "dark" | "system"`.
   - `applyTheme()` dipanggil di `main.tsx` **sebelum** render (minim flash, CSP-safe
