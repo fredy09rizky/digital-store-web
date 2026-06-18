@@ -4,7 +4,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  X,
   Tag,
   Save,
   CheckCircle2,
@@ -21,7 +20,7 @@ import { Button, IconButton } from "../../components/Button";
 import { Empty } from "../../components/Empty";
 import { TableRowSkeleton } from "../../components/Loading";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { useBackdropClose, useModalEffects } from "../../lib/hooks";
+import { Modal } from "../../components/Modal";
 
 interface VRow {
   id: string;
@@ -150,12 +149,12 @@ export default function AdminVouchers() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="!text-left">Kode</th>
-                <th>Diskon</th>
-                <th>Kuota</th>
-                <th>Berlaku</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col" className="!text-left">Kode</th>
+                <th scope="col">Diskon</th>
+                <th scope="col">Kuota</th>
+                <th scope="col">Berlaku</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -179,12 +178,12 @@ export default function AdminVouchers() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="!text-left">Kode</th>
-                <th>Diskon</th>
-                <th>Kuota</th>
-                <th>Berlaku</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col" className="!text-left">Kode</th>
+                <th scope="col">Diskon</th>
+                <th scope="col">Kuota</th>
+                <th scope="col">Berlaku</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -314,12 +313,6 @@ function VoucherModal({
   onClose: () => void;
   onSave: () => void;
 }) {
-  useModalEffects(true, () => {
-    if (!busy) onClose();
-  });
-  const onBackdropClick = useBackdropClose(() => {
-    if (!busy) onClose();
-  });
   const periodInvalid = edit.active_until <= edit.active_from;
   const percentInvalid = edit.discount_type === "percent" && edit.discount_value > 100;
   const valueInvalid = !Number.isFinite(edit.discount_value) || edit.discount_value < 1;
@@ -328,26 +321,25 @@ function VoucherModal({
   const canSave =
     !periodInvalid && !percentInvalid && !valueInvalid && !scopeRefMissing && !codeInvalid;
   return (
-    <div
-      className="fixed inset-0 bg-black/50 grid place-items-start z-50 p-4 overflow-y-auto animate-fade-in"
-      onMouseDown={onBackdropClick}
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      scrollable
+      closeOnBackdrop={!busy}
+      icon={edit.id ? Pencil : Plus}
+      title={edit.id ? "Edit voucher" : "Voucher baru"}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Batal
+          </Button>
+          <Button onClick={onSave} icon={Save} loading={busy} disabled={!canSave}>
+            Simpan voucher
+          </Button>
+        </>
+      }
     >
-      <div
-        className="card max-w-xl w-full p-5 sm:p-6 my-4 mx-auto animate-scale-in"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="size-10 rounded-xl bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
-              {edit.id ? <Pencil size={20} /> : <Plus size={20} />}
-            </div>
-            <div className="font-extrabold text-lg text-[var(--color-ink)]">
-              {edit.id ? "Edit voucher" : "Voucher baru"}
-            </div>
-          </div>
-          <IconButton icon={X} label="Tutup" onClick={onClose} />
-        </div>
-
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Kode" icon={Hash}>
             <input
@@ -503,17 +495,7 @@ function VoucherModal({
             <span className="font-semibold">Aktif (bisa dipakai user)</span>
           </label>
         </div>
-
-        <div className="flex justify-end gap-2 mt-5">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Batal
-          </Button>
-          <Button onClick={onSave} icon={Save} loading={busy} disabled={!canSave}>
-            Simpan voucher
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

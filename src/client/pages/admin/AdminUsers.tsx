@@ -256,11 +256,11 @@ export default function AdminUsers() {
         <table className="data-table">
           <thead>
             <tr>
-              <th className="!text-left">User</th>
-              <th>Status</th>
-              <th>Saldo</th>
-              <th>Dibuat</th>
-              <th></th>
+              <th scope="col" className="!text-left">User</th>
+              <th scope="col">Status</th>
+              <th scope="col">Saldo</th>
+              <th scope="col">Dibuat</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>

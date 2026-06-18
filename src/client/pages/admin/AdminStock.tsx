@@ -368,7 +368,7 @@ export default function AdminStock() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="!w-10 !p-2">
+                <th scope="col" className="!w-10 !p-2">
                   <input
                     type="checkbox"
                     className="size-4 accent-[var(--color-brand-500)]"
@@ -389,10 +389,10 @@ export default function AdminStock() {
                     aria-label="Pilih semua available"
                   />
                 </th>
-                <th className="!text-left">Konten</th>
-                <th>Status</th>
-                <th>Order</th>
-                <th>Dibuat</th>
+                <th scope="col" className="!text-left">Konten</th>
+                <th scope="col">Status</th>
+                <th scope="col">Order</th>
+                <th scope="col">Dibuat</th>
               </tr>
             </thead>
             <tbody>

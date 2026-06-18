@@ -4,6 +4,7 @@ import { LogIn, TimerOff } from "lucide-react";
 import { api, setSessionExpiredHandler, type SessionExpiredKind } from "../lib/api";
 import { wasAdminAuthed } from "../pages/admin/admin-session";
 import { ToastHost, useToastBus } from "../components/Toast";
+import { Modal } from "../components/Modal";
 
 export interface BootstrapData {
   appName: string;
@@ -173,12 +174,8 @@ function SessionWatcher() {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[90] bg-black/50 grid place-items-center p-4 animate-fade-in"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="card max-w-sm w-full p-6 my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto animate-scale-in text-center">
+    <Modal open onClose={goLogin} closeOnBackdrop={false} hideClose size="sm" overlayZ="z-[90]" ariaLabel="Sesi berakhir">
+      <div className="text-center">
         <div className="mx-auto size-12 rounded-xl bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-[var(--color-warning)] grid place-items-center mb-3">
           <TimerOff size={24} />
         </div>
@@ -197,6 +194,6 @@ function SessionWatcher() {
           <LogIn size={16} /> Login ulang
         </button>
       </div>
-    </div>
+    </Modal>
   );
 }

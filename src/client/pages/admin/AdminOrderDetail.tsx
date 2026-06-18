@@ -10,14 +10,9 @@ import {
   RotateCcw,
   Trash2,
   KeyRound,
-  Mail,
-  Lock,
-  StickyNote,
   ImageOff,
   Eye,
   EyeOff,
-  Copy,
-  Check,
   ExternalLink,
   User as UserIcon,
 } from "lucide-react";
@@ -425,43 +420,6 @@ function AccountCard({ it }: { it: InvItem }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function CredRow({
-  icon: Icon,
-  value,
-  masked,
-}: {
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  value: string;
-  masked?: boolean;
-}) {
-  const [copied, setCopied] = useState(false);
-  const toast = useToast();
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("Tidak bisa menyalin.");
-    }
-  }
-  return (
-    <div className="flex items-center gap-1.5 min-w-0">
-      <Icon size={12} className="text-[var(--color-ink-3)] shrink-0" />
-      <span className="font-mono text-xs text-[var(--color-ink)] truncate flex-1">
-        {masked ? "••••••••••" : value}
-      </span>
-      <IconButton
-        icon={copied ? Check : Copy}
-        label="Salin"
-        size={12}
-        className={"!size-7 shrink-0 " + (copied ? "!text-[var(--color-success)]" : "")}
-        onClick={copy}
-      />
     </div>
   );
 }

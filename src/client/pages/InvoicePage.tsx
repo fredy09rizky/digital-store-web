@@ -105,6 +105,7 @@ export default function InvoicePage() {
                 {["Item", "Qty", "Harga", "Subtotal"].map((h, i) => (
                   <th
                     key={h}
+                    scope="col"
                     className={
                       "py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-ink-3)] border-b border-[var(--color-border-strong)] " +
                       (i === 0 ? "text-left" : "text-right")

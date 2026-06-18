@@ -1,12 +1,12 @@
 import { cloneElement, isValidElement, useEffect, useId, useState } from "react";
-import { Shapes, Plus, Pencil, Trash2, X, Hash, Type as TypeIcon } from "lucide-react";
+import { Shapes, Plus, Pencil, Trash2, Hash, Type as TypeIcon } from "lucide-react";
 import { api } from "../../lib/api";
 import { useToast } from "../../components/Toast";
 import { Button, IconButton } from "../../components/Button";
 import { ListRowSkeleton } from "../../components/Loading";
 import { Empty } from "../../components/Empty";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { useBackdropClose, useModalEffects } from "../../lib/hooks";
+import { Modal } from "../../components/Modal";
 import { categoryIcon } from "../../lib/category-icons";
 
 interface CatRow {
@@ -187,32 +187,24 @@ function CategoryModal({
   onSave: () => void;
 }) {
   const isNew = !row.id;
-  useModalEffects(true, () => {
-    if (!busy) onClose();
-  });
-  const onBackdropClick = useBackdropClose(() => {
-    if (!busy) onClose();
-  });
   return (
-    <div
-      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4 animate-fade-in"
-      onMouseDown={onBackdropClick}
+    <Modal
+      open
+      onClose={onClose}
+      title={isNew ? "Kategori baru" : "Edit kategori"}
+      icon={isNew ? Plus : Pencil}
+      closeOnBackdrop={!busy}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Batal
+          </Button>
+          <Button onClick={onSave} loading={busy}>
+            Simpan kategori
+          </Button>
+        </>
+      }
     >
-      <div
-        className="card max-w-md w-full p-5 sm:p-6 my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto animate-scale-in"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="size-10 rounded-xl bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
-              {isNew ? <Plus size={20} /> : <Pencil size={20} />}
-            </div>
-            <div className="font-extrabold text-lg text-[var(--color-ink)]">
-              {isNew ? "Kategori baru" : "Edit kategori"}
-            </div>
-          </div>
-          <IconButton icon={X} label="Tutup" onClick={onClose} />
-        </div>
         <div className="space-y-3">
           <Field label="Nama" icon={TypeIcon}>
             <input
@@ -271,16 +263,7 @@ function CategoryModal({
             <div className="help-text">Angka kecil tampil duluan.</div>
           </div>
         </div>
-        <div className="flex justify-end gap-2 mt-5">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Batal
-          </Button>
-          <Button onClick={onSave} loading={busy}>
-            Simpan kategori
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

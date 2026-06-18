@@ -82,10 +82,12 @@ export function ToastHost() {
     <div className="pointer-events-none fixed z-[100] top-3 inset-x-0 px-3 flex flex-col items-center gap-2 sm:top-4 sm:right-4 sm:left-auto sm:inset-x-auto sm:items-end sm:px-0">
       {ctx.items.map((t) => {
         const { border, icon: Icon, iconColor } = KIND_STYLE[t.kind];
+        const assertive = t.kind === "error" || t.kind === "warn";
         return (
           <div
             key={t.id}
-            role="status"
+            role={assertive ? "alert" : "status"}
+            aria-live={assertive ? "assertive" : "polite"}
             className="pointer-events-auto max-w-md w-full sm:w-[360px] flex items-start gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-[var(--shadow-elev)] animate-slide-down text-sm"
             style={{ borderLeft: `3px solid ${border}` }}
           >
