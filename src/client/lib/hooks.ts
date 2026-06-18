@@ -76,3 +76,61 @@ export function useShake<T extends HTMLElement = HTMLDivElement>() {
   }, []);
   return { ref, shake };
 }
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "textarea:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+/**
+ * Menahan fokus keyboard (Tab / Shift+Tab) di dalam sebuah container selama
+ * `active` bernilai true. Penting untuk modal/overlay agar fokus tidak "lolos"
+ * ke konten di belakang (WCAG 2.4.3 / 2.1.2).
+ *
+ * Hook ini sengaja TIDAK mengatur fokus awal — pemanggil tetap bebas
+ * meng-autofocus elemen tertentu (mis. tombol konfirmasi atau input pertama).
+ * Ia hanya melingkarkan fokus saat user menekan Tab di tepi daftar elemen
+ * fokusabel, dan menarik fokus kembali bila terlanjur di luar container.
+ *
+ * Mengembalikan `ref` untuk ditempel ke elemen container modal.
+ */
+export function useFocusTrap<T extends HTMLElement = HTMLElement>(active: boolean) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    if (!active) return;
+    const container = ref.current;
+    if (!container) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !container) return;
+      const focusables = Array.from(
+        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+      if (focusables.length === 0) {
+        e.preventDefault();
+        container.focus();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (activeEl === first || !container.contains(activeEl)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (activeEl === last || !container.contains(activeEl)) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    container.addEventListener("keydown", onKeyDown);
+    return () => container.removeEventListener("keydown", onKeyDown);
+  }, [active]);
+  return ref;
+}

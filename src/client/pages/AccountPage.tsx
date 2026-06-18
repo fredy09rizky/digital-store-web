@@ -11,7 +11,6 @@ import {
   ArrowUpRight,
   History,
   Sparkles,
-  X,
   Lock,
   LifeBuoy,
 } from "lucide-react";
@@ -24,7 +23,7 @@ import { Empty } from "../components/Empty";
 import { Button, LinkButton } from "../components/Button";
 import { Alert } from "../components/Alert";
 import { Pagination } from "../components/Pagination";
-import { useBackdropClose, useModalEffects } from "../lib/hooks";
+import { Modal } from "../components/Modal";
 import { validatePassword } from "@shared/constants";
 
 interface MeResp {
@@ -336,13 +335,6 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const nav = useNavigate();
 
-  useModalEffects(true, () => {
-    if (!busy) onClose();
-  });
-  const onBackdropClick = useBackdropClose(() => {
-    if (!busy) onClose();
-  });
-
   async function submit() {
     setErr(null);
     const pErr = validatePassword(newP);
@@ -364,88 +356,71 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4 animate-fade-in"
-      onMouseDown={onBackdropClick}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="card max-w-md w-full p-5 sm:p-6 my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto animate-scale-in"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="size-9 rounded-lg bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
-              <KeyRound size={18} />
-            </div>
-            <div className="font-extrabold text-lg text-[var(--color-ink)]">Ganti password</div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Tutup"
-            className="size-8 rounded-md grid place-items-center text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface-soft)]"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <p className="text-sm text-[var(--color-ink-2)] mt-2">
-          Setelah ganti password, semua sesi lama akan otomatis logout dan kamu perlu login ulang.
-        </p>
-        {err && (
-          <div className="mt-3">
-            <Alert tone="error" onClose={() => setErr(null)}>
-              {err}
-            </Alert>
-          </div>
-        )}
-        <div className="space-y-3 mt-4">
-          <div>
-            <label className="label" htmlFor="cp-old">Password lama</label>
-            <div className="relative">
-              <Lock
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none"
-              />
-              <input
-                id="cp-old"
-                className="input !pl-9"
-                placeholder="Password saat ini"
-                type="password"
-                value={oldP}
-                onChange={(e) => setOldP(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="label" htmlFor="cp-new">Password baru</label>
-            <div className="relative">
-              <Lock
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none"
-              />
-              <input
-                id="cp-new"
-                className="input !pl-9"
-                placeholder="Min 10, huruf besar & kecil, angka, simbol"
-                type="password"
-                value={newP}
-                onChange={(e) => setNewP(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-2 justify-end mt-5">
-          <Button variant="ghost" onClick={onClose}>
+    <Modal
+      open
+      onClose={onClose}
+      title="Ganti password"
+      icon={KeyRound}
+      closeOnBackdrop={!busy}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             Batal
           </Button>
           <Button onClick={submit} loading={busy}>
             Simpan
           </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-[var(--color-ink-2)]">
+        Setelah ganti password, semua sesi lama akan otomatis logout dan kamu perlu login ulang.
+      </p>
+      {err && (
+        <div className="mt-3">
+          <Alert tone="error" onClose={() => setErr(null)}>
+            {err}
+          </Alert>
+        </div>
+      )}
+      <div className="space-y-3 mt-4">
+        <div>
+          <label className="label" htmlFor="cp-old">Password lama</label>
+          <div className="relative">
+            <Lock
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none"
+            />
+            <input
+              id="cp-old"
+              className="input !pl-9"
+              placeholder="Password saat ini"
+              type="password"
+              value={oldP}
+              onChange={(e) => setOldP(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="label" htmlFor="cp-new">Password baru</label>
+          <div className="relative">
+            <Lock
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none"
+            />
+            <input
+              id="cp-new"
+              className="input !pl-9"
+              placeholder="Min 10, huruf besar & kecil, angka, simbol"
+              type="password"
+              value={newP}
+              onChange={(e) => setNewP(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

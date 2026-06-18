@@ -119,6 +119,7 @@ function Hero({ featured, cats }: { featured: PublicProductSummary[]; cats: Publ
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Mau cari akun apa hari ini?"
+              aria-label="Cari produk"
               className="flex-1 min-w-0 bg-transparent px-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] outline-none"
             />
             <button

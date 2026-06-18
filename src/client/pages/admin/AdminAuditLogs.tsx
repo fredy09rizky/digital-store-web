@@ -84,12 +84,12 @@ export default function AdminAuditLogs() {
         <table className="data-table">
           <thead>
             <tr>
-              <th className="!text-left">Waktu</th>
-              <th>Aktor</th>
-              <th>Action</th>
-              <th>Target</th>
-              <th>Meta</th>
-              <th>IP</th>
+              <th scope="col" className="!text-left">Waktu</th>
+              <th scope="col">Aktor</th>
+              <th scope="col">Action</th>
+              <th scope="col">Target</th>
+              <th scope="col">Meta</th>
+              <th scope="col">IP</th>
             </tr>
           </thead>
           <tbody>

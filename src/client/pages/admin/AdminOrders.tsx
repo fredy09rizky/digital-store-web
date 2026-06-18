@@ -207,14 +207,14 @@ export default function AdminOrders() {
         <table className="data-table">
           <thead>
             <tr>
-              <th className="!text-left">Code</th>
-              <th>User</th>
-              <th>Status</th>
-              <th>Total</th>
-              <th>Method</th>
-              <th>Dibuat</th>
-              <th>Dibayar</th>
-              <th></th>
+              <th scope="col" className="!text-left">Code</th>
+              <th scope="col">User</th>
+              <th scope="col">Status</th>
+              <th scope="col">Total</th>
+              <th scope="col">Method</th>
+              <th scope="col">Dibuat</th>
+              <th scope="col">Dibayar</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>

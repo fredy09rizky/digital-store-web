@@ -189,11 +189,13 @@ export default function ProductDetailPage() {
               {[
                 ...(p.thumbnailUrl ? [{ id: "thumb", url: p.thumbnailUrl }] : []),
                 ...p.images,
-              ].map((im) => (
+              ].map((im, idx) => (
                 <button
                   key={im.id}
                   type="button"
                   onClick={() => setActiveImg(im.url)}
+                  aria-label={`Lihat gambar ${idx + 1}`}
+                  aria-pressed={activeImg === im.url}
                   className={
                     "aspect-square rounded-lg overflow-hidden border-2 transition " +
                     (activeImg === im.url

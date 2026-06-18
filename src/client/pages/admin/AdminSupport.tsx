@@ -85,6 +85,7 @@ export default function AdminSupport() {
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToast();
 
   async function loadList() {
@@ -129,6 +130,14 @@ export default function AdminSupport() {
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [messages.length]);
+
+  // Auto-grow textarea balasan admin, dibatasi tinggi maksimum.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+  }, [text]);
 
   async function send() {
     if (!activeId || !text.trim() || busy) return;
@@ -336,6 +345,9 @@ export default function AdminSupport() {
             </div>
             <div
               ref={ref}
+              role="log"
+              aria-live="polite"
+              aria-label="Riwayat pesan"
               className="flex-1 overflow-y-auto p-4 space-y-3 bg-[var(--color-surface-soft)]"
             >
               {messages.length === 0 ? (
@@ -355,9 +367,10 @@ export default function AdminSupport() {
               )}
               <div className="flex gap-2 items-end">
                 <textarea
+                  ref={taRef}
                   rows={1}
                   maxLength={1000}
-                  className="textarea !min-h-[40px] flex-1 !py-2.5 resize-none"
+                  className="textarea !min-h-[40px] max-h-[140px] flex-1 !py-2.5 resize-none overflow-y-auto"
                   placeholder="Tulis balasan… (Enter kirim, Ctrl/Shift+Enter baris baru)"
                   value={text}
                   onChange={(e) => setText(e.target.value)}

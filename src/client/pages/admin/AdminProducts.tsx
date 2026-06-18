@@ -21,7 +21,7 @@ import { Button, IconButton, LinkButton } from "../../components/Button";
 import { TableRowSkeleton } from "../../components/Loading";
 import { Empty } from "../../components/Empty";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { useBackdropClose, useModalEffects } from "../../lib/hooks";
+import { Modal } from "../../components/Modal";
 
 interface Cat {
   id: string;
@@ -275,12 +275,12 @@ export default function AdminProducts() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="!text-left">Produk</th>
-                <th>Kategori</th>
-                <th>Harga</th>
-                <th>Stok</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col" className="!text-left">Produk</th>
+                <th scope="col">Kategori</th>
+                <th scope="col">Harga</th>
+                <th scope="col">Stok</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -304,12 +304,12 @@ export default function AdminProducts() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="!text-left">Produk</th>
-                <th>Kategori</th>
-                <th>Harga</th>
-                <th>Stok</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col" className="!text-left">Produk</th>
+                <th scope="col">Kategori</th>
+                <th scope="col">Harga</th>
+                <th scope="col">Stok</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -464,12 +464,6 @@ function ProductModal({
   onUploadThumb: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onUploadGallery: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
-  useModalEffects(true, () => {
-    if (!busy) onClose();
-  });
-  const onBackdropClick = useBackdropClose(() => {
-    if (!busy) onClose();
-  });
   const saleInvalid =
     edit.salePriceCents != null &&
     edit.priceCents > 0 &&
@@ -477,31 +471,26 @@ function ProductModal({
   const nameInvalid = edit.name.trim().length < 2;
   const canSave = !saleInvalid && !nameInvalid;
   return (
-    <div
-      className="fixed inset-0 bg-black/50 grid place-items-start z-50 p-4 overflow-y-auto animate-fade-in"
-      onMouseDown={onBackdropClick}
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      scrollable
+      closeOnBackdrop={!busy}
+      icon={edit.id ? Pencil : Plus}
+      title={edit.id ? "Edit produk" : "Produk baru"}
+      description="Backend memvalidasi ulang harga & stok saat checkout."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Batal
+          </Button>
+          <Button onClick={onSave} icon={Save} loading={busy} disabled={!canSave}>
+            Simpan produk
+          </Button>
+        </>
+      }
     >
-      <div
-        className="card max-w-3xl w-full p-5 sm:p-6 my-4 mx-auto animate-scale-in"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="size-10 rounded-xl bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
-              {edit.id ? <Pencil size={20} /> : <Plus size={20} />}
-            </div>
-            <div>
-              <div className="font-extrabold text-lg text-[var(--color-ink)]">
-                {edit.id ? "Edit produk" : "Produk baru"}
-              </div>
-              <div className="text-xs text-[var(--color-ink-3)]">
-                Backend memvalidasi ulang harga & stok saat checkout.
-              </div>
-            </div>
-          </div>
-          <IconButton icon={X} label="Tutup" onClick={onClose} />
-        </div>
-
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Nama">
             <input
@@ -763,17 +752,7 @@ function ProductModal({
             cancel order itu lebih dulu.
           </p>
         </div>
-
-        <div className="flex justify-end gap-2 mt-5">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Batal
-          </Button>
-          <Button onClick={onSave} icon={Save} loading={busy} disabled={!canSave}>
-            Simpan produk
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

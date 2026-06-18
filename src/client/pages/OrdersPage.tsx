@@ -1,49 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  Receipt,
-  Package,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  RefreshCw,
-  Ban,
-  CreditCard,
-  ChevronRight,
-} from "lucide-react";
+import { Receipt, Package, CreditCard, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
-import type { OrderListItem, OrderStatus } from "@shared/types";
+import type { OrderListItem } from "@shared/types";
 import { rupiah, relativeID } from "../lib/format";
 import { Empty } from "../components/Empty";
 import { OrderRowSkeleton } from "../components/Loading";
 import { LinkButton } from "../components/Button";
+import { StatusPill } from "../components/StatusPill";
 
 const FILTERS: { value: string; label: string }[] = [
   { value: "", label: "Semua" },
   { value: "pending_payment", label: "Menunggu" },
   { value: "paid", label: "Lunas" },
   { value: "expired", label: "Kedaluwarsa" },
+  { value: "cancelled", label: "Dibatalkan" },
   { value: "refunded", label: "Refunded" },
 ];
-
-const STATUS_INFO: Record<
-  OrderStatus,
-  {
-    label: string;
-    icon: React.ComponentType<{ size?: number; className?: string }>;
-    cls: string;
-  }
-> = {
-  pending_payment: {
-    label: "Menunggu",
-    icon: Clock,
-    cls: "bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-[var(--color-warning)] border-[color-mix(in_srgb,var(--color-warning)_32%,transparent)]",
-  },
-  paid: { label: "Lunas", icon: CheckCircle2, cls: "bg-[color-mix(in_srgb,var(--color-success)_14%,transparent)] text-[var(--color-success)] border-[color-mix(in_srgb,var(--color-success)_32%,transparent)]" },
-  expired: { label: "Kedaluwarsa", icon: XCircle, cls: "bg-[color-mix(in_srgb,var(--color-danger)_12%,transparent)] text-[var(--color-danger)] border-[color-mix(in_srgb,var(--color-danger)_32%,transparent)]" },
-  cancelled: { label: "Dibatalkan", icon: Ban, cls: "bg-[var(--color-surface-mute)] text-[var(--color-ink-2)] border-[var(--color-border)]" },
-  refunded: { label: "Direfund", icon: RefreshCw, cls: "bg-[var(--color-surface-tint)] text-[var(--color-brand-700)] border-[var(--color-brand-200)]" },
-};
 
 export default function OrdersPage() {
   const [list, setList] = useState<OrderListItem[] | null>(null);
@@ -125,8 +98,6 @@ export default function OrdersPage() {
 }
 
 function OrderRow({ order: o }: { order: OrderListItem }) {
-  const info = STATUS_INFO[o.status];
-  const Icon = info.icon;
   const isPending = o.status === "pending_payment";
   const linkTo = isPending ? `/pembayaran/${o.code}` : `/akun/pesanan/${o.code}`;
 
@@ -147,15 +118,7 @@ function OrderRow({ order: o }: { order: OrderListItem }) {
             >
               {o.code}
             </div>
-            <span
-              className={
-                "text-[10px] font-bold uppercase tracking-wider border rounded-full px-2 py-0.5 inline-flex items-center gap-1 " +
-                info.cls
-              }
-            >
-              <Icon size={10} />
-              {info.label}
-            </span>
+            <StatusPill status={o.status} />
           </div>
           <div className="text-xs text-[var(--color-ink-2)] mt-1 inline-flex items-center gap-2 flex-wrap">
             <span>{relativeID(o.createdAt)}</span>

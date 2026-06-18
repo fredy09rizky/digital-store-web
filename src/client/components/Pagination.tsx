@@ -24,7 +24,10 @@ export function Pagination({ page, pageSize, total, onPageChange, disabled }: Pr
   const canPrev = page > 1 && !disabled;
   const canNext = page < totalPages && !disabled;
   return (
-    <div className="flex items-center justify-between text-xs text-[var(--color-ink-2)] px-1 pt-3">
+    <div
+      className="flex items-center justify-between text-xs text-[var(--color-ink-2)] px-1 pt-3"
+      aria-live="polite"
+    >
       <div>
         {from.toLocaleString("id-ID")}–{to.toLocaleString("id-ID")} dari{" "}
         <span className="text-[var(--color-ink)] font-semibold">{total.toLocaleString("id-ID")}</span>

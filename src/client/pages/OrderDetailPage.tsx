@@ -5,16 +5,10 @@ import {
   Calendar,
   CreditCard,
   Package,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Ban,
-  RefreshCw,
   MessageCircle,
   Receipt,
   Star,
   RotateCcw,
-  X,
   Sparkles,
   Eye,
   EyeOff,
@@ -23,27 +17,13 @@ import {
   CreditCardIcon,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { OrderDetail, OrderStatus } from "@shared/types";
+import type { OrderDetail } from "@shared/types";
 import { rupiah, dateID } from "../lib/format";
 import { useToast } from "../components/Toast";
 import { Loading } from "../components/Loading";
 import { Button, IconButton, LinkButton } from "../components/Button";
-import { useBackdropClose, useModalEffects } from "../lib/hooks";
-
-const STATUS_INFO: Record<
-  OrderStatus,
-  {
-    label: string;
-    cls: string;
-    icon: React.ComponentType<{ size?: number; className?: string }>;
-  }
-> = {
-  pending_payment: { label: "Menunggu", icon: Clock, cls: "bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-[var(--color-warning)] border-[color-mix(in_srgb,var(--color-warning)_32%,transparent)]" },
-  paid: { label: "Lunas", icon: CheckCircle2, cls: "bg-[color-mix(in_srgb,var(--color-success)_14%,transparent)] text-[var(--color-success)] border-[color-mix(in_srgb,var(--color-success)_32%,transparent)]" },
-  expired: { label: "Kedaluwarsa", icon: XCircle, cls: "bg-[color-mix(in_srgb,var(--color-danger)_12%,transparent)] text-[var(--color-danger)] border-[color-mix(in_srgb,var(--color-danger)_32%,transparent)]" },
-  cancelled: { label: "Dibatalkan", icon: Ban, cls: "bg-[var(--color-surface-mute)] text-[var(--color-ink-2)] border-[var(--color-border)]" },
-  refunded: { label: "Direfund", icon: RefreshCw, cls: "bg-[var(--color-surface-tint)] text-[var(--color-brand-700)] border-[var(--color-brand-200)]" },
-};
+import { Modal } from "../components/Modal";
+import { StatusPill } from "../components/StatusPill";
 
 export default function OrderDetailPage() {
   const { idOrCode } = useParams();
@@ -69,8 +49,6 @@ export default function OrderDetailPage() {
   }, [idOrCode]);
 
   if (!o) return <Loading label="Memuat detail order…" />;
-  const info = STATUS_INFO[o.status];
-  const Icon = info.icon;
 
   async function submitRefund() {
     if (refundReason.trim().length < 5) {
@@ -118,17 +96,9 @@ export default function OrderDetailPage() {
               style={{ fontFamily: "var(--font-ui)" }}
             >
               {o.code}
-            </div>
           </div>
-          <span
-            className={
-              "text-[11px] font-bold uppercase tracking-wider border rounded-full px-3 py-1 inline-flex items-center gap-1.5 " +
-              info.cls
-            }
-          >
-            <Icon size={12} />
-            {info.label}
-          </span>
+          </div>
+          <StatusPill status={o.status} className="!text-[11px] !px-3 !py-1" />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
@@ -234,8 +204,7 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      {refundOpen && (
-        <Modal onClose={() => setRefundOpen(false)} title="Ajukan refund" icon={RotateCcw}>
+      <Modal open={refundOpen} onClose={() => setRefundOpen(false)} title="Ajukan refund" icon={RotateCcw}>
           <p className="text-sm text-[var(--color-ink-2)] mb-3">
             Refund hanya bisa diajukan <span className="font-semibold">satu kali</span> per pesanan.
             Permintaan diteruskan ke admin lewat chat refund. Refund yang disetujui masuk ke saldo
@@ -257,9 +226,7 @@ export default function OrderDetailPage() {
             </Button>
           </div>
         </Modal>
-      )}
-      {refundInfoOpen && (
-        <Modal onClose={() => setRefundInfoOpen(false)} title="Refund tidak bisa diajukan lagi" icon={RotateCcw}>
+      <Modal open={refundInfoOpen} onClose={() => setRefundInfoOpen(false)} title="Refund tidak bisa diajukan lagi" icon={RotateCcw}>
           <p className="text-sm text-[var(--color-ink-2)] mb-4">
             Refund untuk pesanan ini sudah pernah diajukan sebelumnya dan sesi chatnya sudah ditutup
             admin. Permintaan refund baru tidak bisa dilakukan untuk pesanan yang sama. Jika masih
@@ -271,7 +238,6 @@ export default function OrderDetailPage() {
             </Button>
           </div>
         </Modal>
-      )}
       {reviewState.open && reviewState.productId && (
         <ReviewModal
           orderId={o.id}
@@ -394,47 +360,6 @@ function ContentField({ value }: { value: string }) {
   );
 }
 
-function Modal({
-  children,
-  title,
-  icon: Icon,
-  onClose,
-}: {
-  children: React.ReactNode;
-  title: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
-  onClose: () => void;
-}) {
-  useModalEffects(true, onClose);
-  const onBackdropClick = useBackdropClose(onClose);
-  return (
-    <div
-      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4 animate-fade-in"
-      onMouseDown={onBackdropClick}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="card max-w-md w-full p-5 sm:p-6 my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto animate-scale-in"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            {Icon && (
-              <div className="size-9 rounded-lg bg-[var(--color-surface-tint)] grid place-items-center text-[var(--color-brand-700)]">
-                <Icon size={18} />
-              </div>
-            )}
-            <div className="font-extrabold text-lg text-[var(--color-ink)]">{title}</div>
-          </div>
-          <IconButton icon={X} label="Tutup" onClick={onClose} />
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function ReviewModal({
   orderId,
   productId,
@@ -470,7 +395,7 @@ function ReviewModal({
   }
 
   return (
-    <Modal onClose={onClose} title={`Review · ${productName}`} icon={Star}>
+    <Modal open onClose={onClose} title={`Review · ${productName}`} icon={Star}>
       <div className="space-y-3">
         <div>
           <div className="label !mb-2">Rating</div>
