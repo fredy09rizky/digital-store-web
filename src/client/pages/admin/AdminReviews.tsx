@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Star,
   CheckCircle2,
@@ -6,6 +7,7 @@ import {
   Trash2,
   Filter,
   MessageSquareText,
+  Receipt,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { dateID, relativeID } from "../../lib/format";
@@ -25,6 +27,8 @@ interface RRow {
   comment: string;
   status: string;
   created_at: number;
+  order_id: string;
+  order_code: string;
 }
 
 interface RPage {
@@ -195,10 +199,20 @@ function ReviewCard({
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <div className="font-bold text-[var(--color-ink)] line-clamp-1">{r.product_name}</div>
-          <div className="text-xs text-[var(--color-ink-3)] inline-flex items-center gap-1.5 mt-0.5">
+          <div className="text-xs text-[var(--color-ink-3)] flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
             <span className="font-semibold text-[var(--color-ink-2)]">@{r.username}</span>
             <span aria-hidden>·</span>
             <span title={dateID(r.created_at)}>{relativeID(r.created_at)}</span>
+            <span aria-hidden>·</span>
+            <Link
+              to={`/admin/order/${r.order_id}`}
+              className="inline-flex items-center gap-1 font-semibold text-[var(--color-brand-700)] hover:underline"
+              style={{ fontFamily: "var(--font-ui)" }}
+              title="Buka detail order"
+            >
+              <Receipt size={12} className="shrink-0" />
+              {r.order_code}
+            </Link>
           </div>
         </div>
         <div className="flex items-center gap-0.5">

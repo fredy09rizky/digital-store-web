@@ -13,9 +13,10 @@ app.get("/", async (c) => {
   const p = parsePagination({ query: (k) => c.req.query(k) });
   const [rs, total] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT r.*, u.username, p.name AS product_name FROM reviews r
+      `SELECT r.*, u.username, p.name AS product_name, o.code AS order_code FROM reviews r
          JOIN users u ON u.id = r.user_id
          JOIN products p ON p.id = r.product_id
+         JOIN orders o ON o.id = r.order_id
         WHERE r.status = ?
         ORDER BY r.created_at DESC
         LIMIT ? OFFSET ?`,
