@@ -141,7 +141,7 @@ export function ChatRoom({
           <div className="text-[11px] text-[var(--color-ink-2)] inline-flex items-center gap-1">
             {closed ? (
               <>
-                <Lock size={11} /> Sesi ditutup
+                <Lock size={11} /> Ditutup · admin masih bisa membalas
               </>
             ) : (
               <>
@@ -173,9 +173,13 @@ export function ChatRoom({
       {/* Composer */}
       <div className="border-t border-[var(--color-border)] p-2.5 sm:p-3 bg-[var(--color-surface)]">
         {closed ? (
-          <div className="text-center text-xs text-[var(--color-ink-2)] py-2 inline-flex items-center justify-center gap-1.5 w-full">
-            <Lock size={12} /> Chat telah ditutup admin. Riwayat akan segera dihapus otomatis oleh
-            sistem.
+          <div className="text-center text-xs text-[var(--color-ink-2)] py-2 flex items-center justify-center gap-1.5 w-full">
+            <Lock size={12} className="shrink-0" />
+            <span>
+              Chat ditutup admin. Kamu tidak bisa membalas lagi, tapi admin masih bisa mengirim
+              pesan terakhir (mis. solusi atau akun pengganti) — pesan baru akan muncul di sini
+              otomatis. Riwayat akan dihapus otomatis oleh sistem setelah beberapa waktu.
+            </span>
           </div>
         ) : (
           <div className="space-y-2">

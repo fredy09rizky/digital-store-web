@@ -133,7 +133,7 @@ app.post("/:id/close", async (c) => {
     .bind(
       nanoId("sm"),
       id,
-      "Chat telah ditutup oleh admin. Riwayat chat akan segera dihapus otomatis oleh sistem.",
+      "Chat ditutup oleh admin. User tidak bisa membalas lagi, tapi admin masih dapat mengirim pesan terakhir. Riwayat akan dihapus otomatis oleh sistem setelah beberapa waktu.",
       ts,
     )
     .run();
