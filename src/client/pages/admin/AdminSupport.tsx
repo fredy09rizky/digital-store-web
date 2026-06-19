@@ -167,9 +167,27 @@ export default function AdminSupport() {
     }
   }
 
-  function downloadLog() {
+  async function downloadLog() {
     if (!activeId) return;
-    window.open(`/api/admin/support/${activeId}/log.csv`, "_blank");
+    try {
+      // Pakai fetch terotentikasi (credentials: include) + blob download,
+      // konsisten dengan export CSV lain. Hindari window.open (navigasi
+      // top-level) yang tidak selalu membawa sesi dan menampilkan halaman
+      // error mentah saat gagal.
+      const res = await api<Response>(`/admin/support/${activeId}/log.csv`, { raw: true });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chat-${activeId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error(e?.message ? `Gagal mengunduh log: ${e.message}` : "Gagal mengunduh log chat.");
+    }
   }
 
   function openChat(c: ChatItem) {
