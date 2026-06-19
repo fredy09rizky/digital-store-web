@@ -10,7 +10,7 @@ export const ORDER_STATUSES = [
 
 export const PAYMENT_METHODS = ["qris", "bank_transfer", "wallet"] as const;
 
-export const REVIEW_STATUSES = ["pending", "approved", "rejected", "spam"] as const;
+export const REVIEW_STATUSES = ["pending", "approved", "rejected"] as const;
 
 // Review berupa teks saja (UTF-8 + emoji). Tidak ada upload foto — menghindari
 // pemborosan R2 storage & beban moderasi gambar.

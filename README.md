@@ -104,7 +104,7 @@ Lapisan: **Presentasi** (React) hanya render & kumpulkan input → **HTTP layer*
 
 ```
 digital-store-web-cf/
-├─ migrations/      # SQL skema D1 (0001 … 0015)
+├─ migrations/      # SQL skema D1 (0001 … 0016)
 ├─ seeds/           # seed.sql (kategori+settings), seed-products.sql (demo), reset.sql (wipe)
 ├─ scripts/         # ensure-dist-client.mjs (pra-syarat wrangler dev)
 ├─ docs/            # ARCHITECTURE.md, DESIGN_SYSTEM.md, PAKASIR-INTEGRATION.md
@@ -235,6 +235,7 @@ Migrasi yang tersedia:
 - `0013_drop_invalid_stock` — hapus status stok `invalid`.
 - `0014_inventory_payload_content` — tambah kolom `payload_content` (transisi ke stok konten-bebas).
 - `0015_inventory_content_only` — rebuild inventory jadi **konten-saja** (`payload_content NOT NULL`, buang kolom akun lama). Kompatibilitas stok lama dihapus.
+- `0016_drop_review_spam_status` — hapus status review `spam` (digabung ke `rejected`); konversi baris lama `spam` → `rejected` (tidak mengubah agregat rating).
 
 ---
 
@@ -334,7 +335,8 @@ Harga tier (grosir) di `product_price_tiers`: `effectiveUnitPrice(qty)` memilih 
 - Hanya pembeli sukses pada order terkait yang boleh review (validasi join `orders` + `order_items`).
 - **Teks saja** (UTF-8 + emoji, maks 500 char, karakter kontrol dibuang via `sanitizeText`). Tanpa foto.
 - Default `pending`; hanya `approved` yang menghitung agregat rating (`rating_sum`/`rating_count`, di-update otomatis saat moderasi).
-- Tampil di detail produk via endpoint berpaginasi (`GET /products/:slug/reviews`, 5/halaman). Admin: Approve / Reject / Spam / Hapus.
+- Status moderasi: `pending` / `approved` / `rejected` (status `spam` dihapus — `reject` mewakili semua penolakan). `reject` dapat di-`approve` ulang. Menghapus review yang `approved` ikut mengurangi agregat rating (tidak menyisakan bintang "yatim").
+- Tampil di detail produk via endpoint berpaginasi (`GET /products/:slug/reviews`, 5/halaman). Admin: Approve / Reject / Hapus (Reject bisa di-approve lagi; Hapus menyesuaikan agregat & membuka kesempatan user mereview ulang).
 
 ---
 

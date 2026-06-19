@@ -3,7 +3,6 @@ import {
   Star,
   CheckCircle2,
   XCircle,
-  AlertOctagon,
   Trash2,
   Filter,
   MessageSquareText,
@@ -37,16 +36,15 @@ interface RPage {
 
 const PAGE_SIZE = 20;
 
-const TABS: { value: "pending" | "approved" | "rejected" | "spam"; label: string }[] = [
+const TABS: { value: "pending" | "approved" | "rejected"; label: string }[] = [
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
-  { value: "spam", label: "Spam" },
 ];
 
 export default function AdminReviews() {
   const [data, setData] = useState<RPage | null>(null);
-  const [status, setStatus] = useState<"pending" | "approved" | "rejected" | "spam">("pending");
+  const [status, setStatus] = useState<"pending" | "approved" | "rejected">("pending");
   const [page, setPage] = useState(1);
   const [confirmDel, setConfirmDel] = useState<RRow | null>(null);
   const toast = useToast();
@@ -75,7 +73,7 @@ export default function AdminReviews() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, page]);
 
-  async function moderate(id: string, target: "approved" | "rejected" | "spam") {
+  async function moderate(id: string, target: "approved" | "rejected") {
     try {
       await api(`/admin/reviews/${id}/moderate`, { body: { status: target } });
       toast.success(`Review di-${target}.`);
@@ -189,7 +187,7 @@ function ReviewCard({
   onDelete,
 }: {
   row: RRow;
-  onModerate: (t: "approved" | "rejected" | "spam") => void;
+  onModerate: (t: "approved" | "rejected") => void;
   onDelete: () => void;
 }) {
   return (
@@ -244,16 +242,6 @@ function ReviewCard({
             onClick={() => onModerate("rejected")}
           >
             Reject
-          </Button>
-        )}
-        {r.status !== "spam" && (
-          <Button
-            size="sm"
-            variant="outline"
-            icon={AlertOctagon}
-            onClick={() => onModerate("spam")}
-          >
-            Spam
           </Button>
         )}
         <Button size="sm" variant="danger" icon={Trash2} onClick={onDelete}>

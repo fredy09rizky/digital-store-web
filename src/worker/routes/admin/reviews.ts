@@ -30,7 +30,7 @@ app.get("/", async (c) => {
 });
 
 const ModBody = z.object({
-  status: z.enum(["approved", "rejected", "spam"]),
+  status: z.enum(["approved", "rejected"]),
   note: z.string().max(300).optional(),
 });
 
@@ -78,7 +78,31 @@ app.post("/:id/moderate", async (c) => {
 
 app.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  // Ambil status & rating dulu: kalau review yang dihapus masih 'approved',
+  // kontribusinya ke agregat produk WAJIB ikut dikurangi. Tanpa ini, bintang
+  // rating "yatim" (count/sum masih menghitung review yang sudah hilang).
+  const cur = await c.env.DB.prepare(
+    "SELECT product_id, rating, status FROM reviews WHERE id = ?",
+  )
+    .bind(id)
+    .first<{ product_id: string; rating: number; status: string }>();
+  if (!cur) return fail(c, "not_found", "Review tidak ditemukan.", 404);
+  const ts = now();
   await c.env.DB.prepare("DELETE FROM reviews WHERE id = ?").bind(id).run();
+  if (cur.status === "approved") {
+    await c.env.DB.prepare(
+      "UPDATE products SET rating_sum = rating_sum - ?, rating_count = MAX(0, rating_count - 1), updated_at = ? WHERE id = ?",
+    )
+      .bind(cur.rating, ts, cur.product_id)
+      .run();
+  }
+  await audit(c.env, {
+    actorKind: "admin",
+    actorId: c.get("admin")!.id,
+    action: "admin.review.delete",
+    targetKind: "review",
+    targetId: id,
+  });
   return ok(c, { ok: true });
 });
 
