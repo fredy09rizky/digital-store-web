@@ -14,7 +14,7 @@ import {
 import { api } from "../../lib/api";
 import { dateID, relativeID } from "../../lib/format";
 import { useToast } from "../../components/Toast";
-import { Button } from "../../components/Button";
+import { Button, IconButton } from "../../components/Button";
 import { Empty } from "../../components/Empty";
 import { Pagination } from "../../components/Pagination";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -84,8 +84,10 @@ export default function AdminSupport() {
   const [busy, setBusy] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [dlOpen, setDlOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const dlRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
   async function loadList() {
@@ -139,6 +141,28 @@ export default function AdminSupport() {
     el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }, [text]);
 
+  // Tutup menu unduh saat klik di luar atau tekan Escape.
+  useEffect(() => {
+    if (!dlOpen) return;
+    function onDown(e: MouseEvent) {
+      if (dlRef.current && !dlRef.current.contains(e.target as Node)) setDlOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setDlOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [dlOpen]);
+
+  // Tutup menu unduh saat berpindah chat.
+  useEffect(() => {
+    setDlOpen(false);
+  }, [activeId]);
+
   async function send() {
     if (!activeId || !text.trim() || busy) return;
     setBusy(true);
@@ -169,6 +193,7 @@ export default function AdminSupport() {
 
   async function downloadLog(format: "csv" | "json") {
     if (!activeId) return;
+    setDlOpen(false);
     try {
       // Pakai fetch terotentikasi (credentials: include) + blob download,
       // konsisten dengan export CSV lain. Hindari window.open (navigasi
@@ -348,17 +373,45 @@ export default function AdminSupport() {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  icon={Download}
-                  onClick={() => downloadLog("csv")}
-                >
-                  CSV
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => downloadLog("json")}>
-                  JSON
-                </Button>
+                <div className="relative" ref={dlRef}>
+                  <IconButton
+                    icon={Download}
+                    label="Unduh log chat"
+                    aria-haspopup="menu"
+                    aria-expanded={dlOpen}
+                    onClick={() => setDlOpen((v) => !v)}
+                  />
+                  {dlOpen && (
+                    <div
+                      role="menu"
+                      className="absolute right-0 mt-1 z-20 min-w-[170px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg overflow-hidden py-1"
+                    >
+                      <div className="px-3 pt-1 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-3)]">
+                        Unduh log
+                      </div>
+                      <button
+                        role="menuitem"
+                        className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-surface-soft)] transition"
+                        onClick={() => downloadLog("csv")}
+                      >
+                        Format CSV
+                        <span className="block text-[11px] text-[var(--color-ink-3)]">
+                          Ramah Excel (WIB + metadata)
+                        </span>
+                      </button>
+                      <button
+                        role="menuitem"
+                        className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-surface-soft)] transition"
+                        onClick={() => downloadLog("json")}
+                      >
+                        Format JSON
+                        <span className="block text-[11px] text-[var(--color-ink-3)]">
+                          Arsip lengkap (lossless)
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {activeChat.status === "open" && (
                   <Button
                     size="sm"
