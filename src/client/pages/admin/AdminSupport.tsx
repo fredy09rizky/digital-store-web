@@ -14,7 +14,7 @@ import {
 import { api } from "../../lib/api";
 import { dateID, relativeID } from "../../lib/format";
 import { useToast } from "../../components/Toast";
-import { Button, IconButton } from "../../components/Button";
+import { Button } from "../../components/Button";
 import { Empty } from "../../components/Empty";
 import { Pagination } from "../../components/Pagination";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -167,20 +167,20 @@ export default function AdminSupport() {
     }
   }
 
-  async function downloadLog() {
+  async function downloadLog(format: "csv" | "json") {
     if (!activeId) return;
     try {
       // Pakai fetch terotentikasi (credentials: include) + blob download,
       // konsisten dengan export CSV lain. Hindari window.open (navigasi
       // top-level) yang tidak selalu membawa sesi dan menampilkan halaman
       // error mentah saat gagal.
-      const res = await api<Response>(`/admin/support/${activeId}/log.csv`, { raw: true });
+      const res = await api<Response>(`/admin/support/${activeId}/log.${format}`, { raw: true });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `chat-${activeId}.csv`;
+      a.download = `chat-${activeId}.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -348,7 +348,17 @@ export default function AdminSupport() {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <IconButton icon={Download} label="Unduh log CSV" onClick={downloadLog} />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  icon={Download}
+                  onClick={() => downloadLog("csv")}
+                >
+                  CSV
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => downloadLog("json")}>
+                  JSON
+                </Button>
                 {activeChat.status === "open" && (
                   <Button
                     size="sm"

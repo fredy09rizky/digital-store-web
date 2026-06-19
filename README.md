@@ -350,7 +350,7 @@ Dua kanal pakai tabel sama (`support_chats.kind`):
 - Chat **hanya dibuat saat dibutuhkan** (bukan otomatis saat order paid).
 - **Tutup**: admin set `closed`; user tak bisa membalas (lihat pesan sistem), admin masih bisa kirim. Cron menghapus **total** chat closed setelah `chat_retention_hours` (24/48/72 jam, default 24).
 - Validasi: pesan maks 1000 char, alasan refund maks 500 char. Input: `Enter` kirim; `Shift/Ctrl/Cmd+Enter` baris baru.
-- Admin: pencarian (username/kode order) + pagination, label jenis chat, unduh log CSV.
+- Admin: pencarian (username/kode order) + pagination, label jenis chat, unduh log dalam **CSV** (ramah Excel: UTF-8 BOM, waktu WIB, metadata chat) atau **JSON** (arsip lossless + metadata). Unduh hanya selama chat belum dihapus cron.
 
 ---
 

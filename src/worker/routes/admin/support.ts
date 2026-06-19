@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppContext } from "../../env";
 import { fail, ok } from "../../lib/response";
-import { now } from "../../lib/time";
+import { now, formatWIB } from "../../lib/time";
 import { nanoId } from "../../lib/id";
 import { audit } from "../../lib/audit";
 import { buildPage, parsePagination } from "../../lib/pagination";
@@ -147,22 +147,136 @@ app.post("/:id/close", async (c) => {
   return ok(c, { ok: true });
 });
 
-// Download log chat (CSV)
-app.get("/:id/log.csv", async (c) => {
-  const id = c.req.param("id");
-  const chat = await c.env.DB.prepare("SELECT id FROM support_chats WHERE id = ?").bind(id).first<{ id: string }>();
-  if (!chat) return fail(c, "not_found", "Chat tidak ditemukan.", 404);
-  const msgs = await c.env.DB.prepare(
-    "SELECT sender_kind, body, created_at FROM support_messages WHERE chat_id = ? ORDER BY created_at",
+// ============================================================
+//  Unduh log chat: CSV (ramah dibaca admin/Excel) & JSON (arsip lossless).
+// ============================================================
+
+interface ChatExport {
+  chat: {
+    id: string;
+    kind: string;
+    status: string;
+    username: string;
+    orderCode: string | null;
+    createdAt: number;
+    closedAt: number | null;
+  };
+  messages: { id: string; sender_kind: string; body: string; created_at: number }[];
+}
+
+async function loadChatExport(env: AppContext["Bindings"], id: string): Promise<ChatExport | null> {
+  const chat = await env.DB.prepare(
+    `SELECT sc.id, sc.kind, sc.status, sc.created_at, sc.closed_at, u.username, o.code
+       FROM support_chats sc
+       JOIN users u ON u.id = sc.user_id
+       LEFT JOIN orders o ON o.id = sc.order_id
+      WHERE sc.id = ?`,
   )
     .bind(id)
-    .all<{ sender_kind: string; body: string; created_at: number }>();
-  const header = "timestamp,sender,body\n";
-  const rows = (msgs.results ?? [])
-    .map((m) => `${m.created_at},${m.sender_kind},"${(m.body || "").replace(/"/g, '""')}"`)
-    .join("\n");
-  return new Response(header + rows, {
-    headers: { "content-type": "text/csv", "content-disposition": `attachment; filename="chat-${id}.csv"` },
+    .first<any>();
+  if (!chat) return null;
+  const msgs = await env.DB.prepare(
+    "SELECT id, sender_kind, body, created_at FROM support_messages WHERE chat_id = ? ORDER BY created_at",
+  )
+    .bind(id)
+    .all<{ id: string; sender_kind: string; body: string; created_at: number }>();
+  return {
+    chat: {
+      id: chat.id,
+      kind: chat.kind,
+      status: chat.status,
+      username: chat.username,
+      orderCode: chat.code ?? null,
+      createdAt: chat.created_at,
+      closedAt: chat.closed_at ?? null,
+    },
+    messages: msgs.results ?? [],
+  };
+}
+
+function kindLabel(kind: string): string {
+  return kind === "refund" ? "Refund" : "Support umum";
+}
+function senderLabel(s: string): string {
+  if (s === "admin") return "Admin";
+  if (s === "system") return "Sistem";
+  return "User";
+}
+/** Escape satu sel CSV: selalu dibungkus kutip, kutip internal digandakan. */
+function csvCell(v: unknown): string {
+  return `"${String(v ?? "").replace(/"/g, '""')}"`;
+}
+
+// Download log chat (CSV) — UTF-8 + BOM (emoji aman di Excel), timestamp WIB,
+// dan baris metadata di atas tabel agar konteks chat ikut terbawa.
+app.get("/:id/log.csv", async (c) => {
+  const id = c.req.param("id");
+  const data = await loadChatExport(c.env, id);
+  if (!data) return fail(c, "not_found", "Chat tidak ditemukan.", 404);
+
+  const meta: [string, string][] = [
+    ["Chat ID", data.chat.id],
+    ["Jenis", kindLabel(data.chat.kind)],
+    ["Username", `@${data.chat.username}`],
+    ["Kode Order", data.chat.orderCode ?? "-"],
+    ["Status", data.chat.status],
+    ["Dibuat", formatWIB(data.chat.createdAt)],
+    ["Ditutup", data.chat.closedAt ? formatWIB(data.chat.closedAt) : "-"],
+    ["Diunduh", formatWIB(now())],
+  ];
+  const lines: string[] = [];
+  for (const [k, v] of meta) lines.push(`${csvCell(k)},${csvCell(v)}`);
+  lines.push(""); // pemisah metadata ↔ tabel pesan
+  lines.push(["Waktu (WIB)", "Pengirim", "Pesan"].map(csvCell).join(","));
+  for (const m of data.messages) {
+    lines.push([formatWIB(m.created_at), senderLabel(m.sender_kind), m.body || ""].map(csvCell).join(","));
+  }
+  // BOM + CRLF supaya Excel membaca UTF-8 dan baris dengan benar.
+  const body = "\uFEFF" + lines.join("\r\n");
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="chat-${id}.csv"`,
+    },
+  });
+});
+
+// Download log chat (JSON) — arsip lossless dengan metadata + tiap pesan
+// menyertakan epoch mentah dan versi WIB yang terbaca.
+app.get("/:id/log.json", async (c) => {
+  const id = c.req.param("id");
+  const data = await loadChatExport(c.env, id);
+  if (!data) return fail(c, "not_found", "Chat tidak ditemukan.", 404);
+
+  const ts = now();
+  const payload = {
+    chat: {
+      id: data.chat.id,
+      kind: data.chat.kind,
+      status: data.chat.status,
+      username: data.chat.username,
+      orderCode: data.chat.orderCode,
+      createdAt: data.chat.createdAt,
+      createdAtWIB: formatWIB(data.chat.createdAt),
+      closedAt: data.chat.closedAt,
+      closedAtWIB: data.chat.closedAt ? formatWIB(data.chat.closedAt) : null,
+    },
+    exportedAt: ts,
+    exportedAtWIB: formatWIB(ts),
+    messageCount: data.messages.length,
+    messages: data.messages.map((m) => ({
+      id: m.id,
+      sender: m.sender_kind,
+      body: m.body,
+      createdAt: m.created_at,
+      createdAtWIB: formatWIB(m.created_at),
+    })),
+  };
+  return new Response(JSON.stringify(payload, null, 2), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "content-disposition": `attachment; filename="chat-${id}.json"`,
+    },
   });
 });
 
