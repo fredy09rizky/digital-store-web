@@ -154,7 +154,7 @@ npm run db:migrate:local
 npm run db:seed:local
 ```
 
-> `ADMIN_PASSWORD_HASH` di-treat sebagai password plain saat tabel `admins` masih kosong; sistem auto-hash & simpan ke DB pada login admin pertama. Setelahnya variabel ini tidak dipakai. Jangan pakai nilai mudah ditebak.
+> `ADMIN_PASSWORD_HASH` di-treat sebagai password plain saat tabel `admins` masih kosong; sistem auto-hash & simpan ke DB pada login admin pertama. Setelahnya variabel ini tidak dipakai. Jangan pakai nilai mudah ditebak. **Di production, bila `ADMIN_PASSWORD_HASH` kosong admin TIDAK akan di-seed** (login gagal jelas, dicatat di log) — tidak ada fallback password default. Fallback dev `admin` hanya berlaku saat `APP_ENV` non-production.
 
 ---
 
@@ -314,7 +314,7 @@ Voucher di tabel `vouchers`, dievaluasi di `services/voucher.ts`:
 
 - `discount_type`: `percent` (maks 100%) atau `amount`.
 - `scope_type`: `all` / `category` / `product` (dua terakhir butuh `scope_ref_id`).
-- Periode wajib valid (`active_until` > `active_from`). Kuota `total_quota` & `per_user_quota` dijaga atomik via `voucher_redemptions` UNIQUE `(voucher_id, order_id)`.
+- Periode wajib valid (`active_until` > `active_from`). Kuota `total_quota` & `per_user_quota` di-**reserve atomik saat checkout** (bukan saat paid): `total_quota` dipotong via `UPDATE ... WHERE used_count < total_quota`, redemption dicatat di `voucher_redemptions` (UNIQUE `(voucher_id, order_id)`) dengan re-check `per_user_quota`. Reservasi dilepas otomatis bila order expired/dibatalkan, sehingga voucher tidak bisa di-oversubscribe oleh banyak order pending.
 - **Tidak menumpuk dengan harga spesial**: item yang kena sale price / tier lebih murah tidak ikut subtotal yang eligible voucher. Hanya 1 voucher per order.
 
 Harga tier (grosir) di `product_price_tiers`: `effectiveUnitPrice(qty)` memilih tier `min_qty <= qty` terbesar; jika tier > harga normal, harga normal menang. `min_qty` unik per produk (UNIQUE index, migrasi `0007`). Validasi dijaga backend & dicerminkan di form admin.
@@ -356,7 +356,7 @@ Dua kanal pakai tabel sama (`support_chats.kind`):
 
 ## Admin panel
 
-**Login:** `start-login` (username+password) → OTP 6-digit ke Telegram → `verify-otp` (ticket+code) → cookie sesi admin. Aksi sensitif (hapus user, reset password, hapus order, refund, ubah saldo) butuh **konfirmasi password admin** via `confirm-password` → token `ack` sekali pakai (TTL 5 menit) yang disertakan di body aksi.
+**Login:** `start-login` (username+password) → OTP 6-digit ke Telegram → `verify-otp` (ticket+code) → cookie sesi admin. Aksi sensitif (hapus user, reset password, hapus order, hapus produk, refund, ubah saldo) butuh **konfirmasi password admin** via `confirm-password` → token `ack` sekali pakai (TTL 5 menit) yang disertakan di body aksi.
 
 **Fitur:**
 

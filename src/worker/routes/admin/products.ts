@@ -6,6 +6,7 @@ import { fail, ok } from "../../lib/response";
 import { now } from "../../lib/time";
 import { nanoId, skuFromName } from "../../lib/id";
 import { audit } from "../../lib/audit";
+import { consumeAdminAck } from "./auth";
 import { buildPage, parsePagination } from "../../lib/pagination";
 import { hasActiveReservations } from "../../services/inventory-reserve";
 import { splitStockInput, STOCK_ITEM_MAX_CHARS, STOCK_BULK_MAX_ITEMS } from "../../../shared/stock";
@@ -239,7 +240,14 @@ app.put("/:id", async (c) => {
   return ok(c, { ok: true });
 });
 
+const DeleteProductBody = z.object({ ack: z.string().min(1) });
 app.delete("/:id", async (c) => {
+  const admin = c.get("admin")!;
+  const body = await c.req.json().catch(() => null);
+  const parsed = DeleteProductBody.safeParse(body);
+  if (!parsed.success) return fail(c, "validation", "Konfirmasi diperlukan.");
+  const okAck = await consumeAdminAck(c.env, admin.id, parsed.data.ack);
+  if (!okAck) return fail(c, "ack_required", "Konfirmasi password admin diperlukan.", 403);
   const id = c.req.param("id");
   if (await hasActiveReservations(c.env.DB, id)) {
     return fail(c, "locked", "Produk memiliki reservasi aktif.", 423);

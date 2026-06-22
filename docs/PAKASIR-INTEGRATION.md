@@ -265,8 +265,10 @@ Setiap polling memanggil `POST /api/orders/:code/check-status`:
 3. commit reservasi: UPDATE inventory SET status='sold' untuk order ini
 4. tambah products.sales_count
 5. UPDATE payments SET status='success'
-6. catat voucher_redemption (kalau ada voucher)
-7. buka support_chat untuk order ini
+6. reservasi voucher (kuota & redemption) sudah dikunci saat checkout — di sini
+   cukup dibiarkan menjadi permanen
+7. (chat support TIDAK dibuat otomatis; hanya dibuat saat user mengajukan
+   refund / membuka Bantuan)
 8. audit log
 ```
 

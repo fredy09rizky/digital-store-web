@@ -10,7 +10,7 @@ import { sendTelegram } from "../../services/telegram";
 import { createSession, destroySession } from "../../lib/session";
 import { clearAdminSessionCookie, setAdminSessionCookie } from "../../lib/cookies";
 import { audit } from "../../lib/audit";
-import { loggerFor } from "../../lib/log";
+import { loggerFor, log } from "../../lib/log";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -27,7 +27,25 @@ async function ensureSeedAdmin(env: AppContext["Bindings"]) {
   const row = await env.DB.prepare("SELECT COUNT(*) AS c FROM admins").first<{ c: number }>();
   if (row && row.c > 0) return;
   if (!env.ADMIN_USERNAME) return;
-  // Jika ADMIN_PASSWORD_HASH disuplai, treat sebagai plain password (akan dihash di sini).
+  // ADMIN_PASSWORD_HASH disuplai sebagai password plain awal (akan dihash di sini).
+  // Di production, JANGAN pernah pakai fallback "admin" yang mudah ditebak:
+  // kalau secret kosong/typo, lebih baik tidak menyeed admin sama sekali
+  // (login gagal dengan jelas) daripada membuat akun admin lemah. Fallback
+  // hanya untuk kenyamanan dev lokal.
+  if (!env.ADMIN_PASSWORD_HASH) {
+    if (env.APP_ENV === "production") {
+      log.error({
+        event: "admin.seed.skipped",
+        msg: "Seed admin dilewati: ADMIN_PASSWORD_HASH belum di-set di production.",
+        meta: { username: env.ADMIN_USERNAME },
+      });
+      return;
+    }
+    log.warn({
+      event: "admin.seed.dev_fallback",
+      msg: "ADMIN_PASSWORD_HASH kosong; memakai password dev default 'admin' (hanya non-production).",
+    });
+  }
   const password = env.ADMIN_PASSWORD_HASH || "admin";
   const { hash, salt } = await hashPassword(password);
   const ts = now();
@@ -50,12 +68,13 @@ app.post("/start-login", async (c) => {
   if (!parsed.success) return fail(c, "validation", "Username/password wajib diisi.");
 
   const ip = c.get("ip");
-  const rl = await rateLimit(c.env, { key: `rl:admin_login:${ip}`, windowSeconds: 60, max: 8 });
+  const rl = await rateLimit(c.env, { key: `rl:admin_login:${ip}`, windowSeconds: 60, max: 8, failClosed: true });
   if (!rl.allowed) return fail(c, "rate_limited", "Terlalu banyak percobaan login admin.", 429);
   const rl2 = await rateLimit(c.env, {
     key: `rl:admin_login_user:${parsed.data.username}`,
     windowSeconds: 600,
     max: 6,
+    failClosed: true,
   });
   if (!rl2.allowed) return fail(c, "rate_limited", "Akun admin ini dikunci sementara.", 429);
 
@@ -111,7 +130,7 @@ app.post("/verify-otp", async (c) => {
   const parsed = VerifyBody.safeParse(body);
   if (!parsed.success) return fail(c, "validation", "Tiket atau kode tidak valid.");
   const ip = c.get("ip");
-  const rl = await rateLimit(c.env, { key: `rl:admin_otp:${ip}`, windowSeconds: 60, max: 12 });
+  const rl = await rateLimit(c.env, { key: `rl:admin_otp:${ip}`, windowSeconds: 60, max: 12, failClosed: true });
   if (!rl.allowed) return fail(c, "rate_limited", "Terlalu banyak percobaan OTP.", 429);
 
   const raw = await c.env.KV.get(`admin_otp:${parsed.data.ticket}`);
@@ -237,6 +256,7 @@ app.post("/confirm-password", async (c) => {
     key: `rl:admin_confirm:${admin.id}`,
     windowSeconds: 60,
     max: 6,
+    failClosed: true,
   });
   if (!rl.allowed)
     return fail(c, "rate_limited", "Terlalu banyak percobaan konfirmasi. Coba lagi sebentar.", 429);

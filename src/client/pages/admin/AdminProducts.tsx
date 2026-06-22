@@ -20,8 +20,9 @@ import { useToast } from "../../components/Toast";
 import { Button, IconButton, LinkButton } from "../../components/Button";
 import { TableRowSkeleton } from "../../components/Loading";
 import { Empty } from "../../components/Empty";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Modal } from "../../components/Modal";
+import { AdminConfirm } from "./AdminConfirm";
+import { adminConfirmPassword } from "./admin-session";
 
 interface Cat {
   id: string;
@@ -170,9 +171,9 @@ export default function AdminProducts() {
       setBusy(false);
     }
   }
-  async function remove(p: Prow) {
+  async function remove(p: Prow, ack: string) {
     try {
-      await api(`/admin/products/${p.id}`, { method: "DELETE" });
+      await api(`/admin/products/${p.id}`, { method: "DELETE", body: { ack } });
       toast.success("Produk dihapus.");
       setConfirmDel(null);
       load();
@@ -432,14 +433,20 @@ export default function AdminProducts() {
         />
       )}
 
-      <ConfirmDialog
+      <AdminConfirm
         open={!!confirmDel}
         title={confirmDel ? `Hapus produk ${confirmDel.name}?` : "Hapus produk"}
-        tone="danger"
-        confirmLabel="Hapus produk"
         description="Produk akan dihapus dari katalog beserta gambar dan tier harganya. Stok yang masih reserved akan menahan penghapusan."
+        destructive
+        requirePassword
+        confirmLabel="Hapus produk"
+        fields={[]}
         onClose={() => setConfirmDel(null)}
-        onConfirm={() => (confirmDel ? remove(confirmDel) : Promise.resolve())}
+        onSubmit={async (values) => {
+          if (!confirmDel) return;
+          const ack = await adminConfirmPassword(values.__password);
+          await remove(confirmDel, ack);
+        }}
       />
     </div>
   );

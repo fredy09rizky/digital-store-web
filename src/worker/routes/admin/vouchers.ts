@@ -133,12 +133,27 @@ app.put("/:id", async (c) => {
       id,
     )
     .run();
+  await audit(c.env, {
+    actorKind: "admin",
+    actorId: c.get("admin")!.id,
+    action: "admin.voucher.update",
+    targetKind: "voucher",
+    targetId: id,
+    meta: { code: parsed.data.code.toUpperCase() },
+  });
   return ok(c, { ok: true });
 });
 
 app.delete("/:id", async (c) => {
   const id = c.req.param("id");
   await c.env.DB.prepare("DELETE FROM vouchers WHERE id = ?").bind(id).run();
+  await audit(c.env, {
+    actorKind: "admin",
+    actorId: c.get("admin")!.id,
+    action: "admin.voucher.delete",
+    targetKind: "voucher",
+    targetId: id,
+  });
   return ok(c, { ok: true });
 });
 

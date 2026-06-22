@@ -35,7 +35,7 @@ database_name = "digital_store"
 database_id = "881e1465-bceb-44c9-9bd7-9e0fa0f6923d"
 migrations_dir = "migrations"
 
-# KV untuk session, OTP, rate limit
+# KV untuk session, OTP, dan ack token admin (rate limit kini di Durable Object)
 [[kv_namespaces]]
 binding = "KV"
 id = "a54c426be32145e5b600b320abdc5d1d"

@@ -119,6 +119,32 @@ app.post("/wallet/topup", async (c) => {
     .bind(orderId, code, user.id, amount, amount, expiresAt, ts, ts)
     .run();
 
+  // Re-check cap SETELAH order dibuat untuk menutup celah race: dua request
+  // paralel kini sama-sama melihat order pending masing-masing (INSERT sudah
+  // ter-commit & statement D1 diserialisasi). Bila total (saldo + seluruh top
+  // up pending termasuk yang baru ini) melebihi cap, batalkan order ini
+  // (kompensasi) sebelum membuat tagihan ke provider.
+  if (Number.isFinite(cap) && cap > 0) {
+    const uNow = await c.env.DB.prepare("SELECT balance_cents FROM users WHERE id = ?")
+      .bind(user.id)
+      .first<{ balance_cents: number }>();
+    const pendNow = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS c FROM orders
+        WHERE user_id = ? AND status = 'pending_payment'
+          AND kind = 'topup' AND expires_at > ?`,
+    )
+      .bind(user.id, ts)
+      .first<{ c: number }>();
+    if ((uNow?.balance_cents ?? 0) + (pendNow?.c ?? 0) > cap) {
+      await c.env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(orderId).run();
+      return fail(
+        c,
+        "balance_cap_reached",
+        `Saldo kamu sudah mendekati batas maksimal Rp${cap.toLocaleString("id-ID")}. Top up belum bisa dilakukan saat ini.`,
+      );
+    }
+  }
+
   let cr;
   try {
     const provider = pakasirProvider(c.env);

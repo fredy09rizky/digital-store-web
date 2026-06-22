@@ -69,6 +69,7 @@ Aturan ketat:
    |                             |    SELECT count reserved untuk order  |
    |                             |    if < n -> rollback semua reservasi |
    |                             |    untuk order ini, hapus order       |
+   |                             |  reserve voucher (potong kuota atomik)|
    |                             |  insert payments                      |
    |                             |  delete cart_items                    |
    |                             |  return order_code                    |
@@ -81,8 +82,8 @@ Aturan ketat:
    |                             |    WHERE status='pending_payment'     |
    |                             |    commit reservation -> 'sold'       |
    |                             |    increment products.sales_count     |
-   |                             |    insert voucher_redemption (idemp.) |
-   |                             |    open support_chat (idemp.)         |
+   |                             |    (voucher sudah di-reserve saat      |
+   |                             |     checkout; reservasi jadi permanen) |
 ```
 
 ## Skema race condition
@@ -185,7 +186,7 @@ Debit tetap atomik via klausul `WHERE balance_cents >= ?` (CAS). Saldo user tida
 
 ## Audit log
 
-Setiap aksi penting dicatat ke `audit_logs` lewat helper `audit()`. Tabel ini append-only dan menjadi sumber halaman `/admin/audit`. Cron melakukan prune sesuai setting retensi (default 365 hari).
+Setiap aksi penting dicatat ke `audit_logs` lewat helper `audit()`. Tabel ini append-only dan menjadi sumber halaman `/admin/audit`. Cron melakukan prune sesuai setting retensi `audit_log_retention_days` (default 30 hari, rentang 30–365).
 
 ## Penghapusan user (hybrid)
 
@@ -252,6 +253,10 @@ per-request, sehingga satu kelas melayani semua area (jendela 4s/60s/300s, dst).
 
 Counter disimpan in-memory: DO hidup selama key aktif diakses (akurat saat
 brute-force berlangsung); bila menganggur lama lalu di-evict, window memang sudah
-lewat. Jika DO tidak tersedia, `rateLimit()` fail-open (melewatkan limit sesaat &
-mencatat log) agar tidak memblokir total layanan. Binding & migrasi diatur di
+lewat. Jika DO tidak tersedia, `rateLimit()` secara default **fail-open**
+(melewatkan limit sesaat & mencatat log) agar tidak memblokir total layanan untuk
+trafik publik/user umum. **Pengecualian:** endpoint auth admin sensitif
+(`admin/start-login`, `verify-otp`, `confirm-password`) memakai opsi
+`failClosed: true` — bila limiter tak bisa dihubungi, request ditolak agar
+proteksi brute-force tidak hilang. Binding & migrasi diatur di
 `wrangler.toml` (`new_sqlite_classes` agar jalan di Workers Free plan).

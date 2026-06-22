@@ -4,10 +4,11 @@ import type { AppContext } from "../../env";
 import { fail, ok } from "../../lib/response";
 import { now } from "../../lib/time";
 import { audit } from "../../lib/audit";
-import { creditWallet, expireOrderIfDue, markOrderPaid } from "../../services/order";
+import { creditWallet, expireOrderIfDue, markOrderPaid, releaseVoucherForOrder } from "../../services/order";
 import { consumeAdminAck } from "./auth";
 import { buildPage, parsePagination } from "../../lib/pagination";
 import { deleteFileObjects } from "../../lib/r2";
+import { loggerFor } from "../../lib/log";
 
 const app = new Hono<AppContext>({ strict: false });
 
@@ -176,7 +177,9 @@ app.post("/:id/refund", async (c) => {
   if (o.kind === "topup") return fail(c, "not_refundable", "Top up saldo tidak bisa direfund.");
   if (o.status !== "paid") return fail(c, "invalid_state", "Hanya order paid yang bisa direfund.");
   const ts = now();
-  // Atomik: status -> refunded
+  // Atomik: status -> refunded. CAS ini adalah titik serialisasi: hanya SATU
+  // pemanggilan yang akan lolos (changes=1), sehingga kredit saldo di bawah
+  // dijamin tidak terjadi ganda walau dua admin menekan refund bersamaan.
   const upd = await c.env.DB.prepare(
     "UPDATE orders SET status='refunded', refunded_at=?, updated_at=? WHERE id=? AND status='paid'",
   )
@@ -184,11 +187,30 @@ app.post("/:id/refund", async (c) => {
     .run();
   // @ts-ignore
   if (!upd.meta?.changes) return fail(c, "race", "Order sudah berubah status.");
-  await creditWallet(c.env, o.user_id, o.total_cents, {
-    kind: "refund",
-    relatedOrderId: id,
-    note: parsed.data.reason ?? "Refund disetujui admin",
-  });
+  try {
+    await creditWallet(c.env, o.user_id, o.total_cents, {
+      kind: "refund",
+      relatedOrderId: id,
+      note: parsed.data.reason ?? "Refund disetujui admin",
+    });
+  } catch (err) {
+    // Kompensasi: bila kredit gagal (mis. error transien), kembalikan status
+    // ke 'paid' agar tidak ada order 'refunded' tanpa saldo dikredit. Admin
+    // bisa mengulang. Tanpa ini, order bisa "refunded" tapi user tak menerima
+    // dananya.
+    await c.env.DB.prepare(
+      "UPDATE orders SET status='paid', refunded_at=NULL, updated_at=? WHERE id=? AND status='refunded'",
+    )
+      .bind(now(), id)
+      .run();
+    loggerFor(c).error({
+      event: "admin.order.refund.credit_failed",
+      msg: "Gagal mengkredit saldo refund; status dikembalikan ke paid.",
+      err,
+      meta: { orderId: id },
+    });
+    return fail(c, "refund_failed", "Gagal mengkredit saldo refund. Silakan coba lagi.", 503);
+  }
   await audit(c.env, {
     actorKind: "admin",
     actorId: admin.id,
@@ -213,6 +235,10 @@ app.delete("/:id", async (c) => {
   const pay = await c.env.DB.prepare("SELECT proof_url FROM payments WHERE order_id = ?")
     .bind(id)
     .first<{ proof_url: string | null }>();
+  // Lepas reservasi voucher (kurangi used_count + hapus redemption) sebelum
+  // baris order dihapus, supaya used_count tidak "drift" lebih tinggi dari
+  // jumlah redemption yang tersisa.
+  await releaseVoucherForOrder(c.env, id);
   await c.env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(id).run();
   await deleteFileObjects(c.env, [pay?.proof_url ?? null]);
   await audit(c.env, {
@@ -244,6 +270,18 @@ app.post("/cleanup-old", async (c) => {
   )
     .bind(cutoff)
     .all<{ proof_url: string | null }>();
+  // Lepas reservasi voucher untuk order yang masih memegang redemption (umumnya
+  // order 'refunded'), agar used_count tidak drift saat barisnya dihapus.
+  const voucherOrders = await c.env.DB.prepare(
+    `SELECT vr.order_id FROM voucher_redemptions vr
+       JOIN orders o ON o.id = vr.order_id
+      WHERE o.status IN ('expired','cancelled','refunded') AND o.created_at < ?`,
+  )
+    .bind(cutoff)
+    .all<{ order_id: string }>();
+  for (const row of voucherOrders.results ?? []) {
+    await releaseVoucherForOrder(c.env, row.order_id);
+  }
   const r = await c.env.DB.prepare(
     "DELETE FROM orders WHERE status IN ('expired','cancelled','refunded') AND created_at < ?",
   )

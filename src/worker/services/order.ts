@@ -24,6 +24,7 @@ import type { VoucherRow } from "./voucher";
 import { evaluateVoucher } from "./voucher";
 import { pakasirProvider } from "./payment";
 import { audit } from "../lib/audit";
+import { log } from "../lib/log";
 
 export interface CreateOrderRequest {
   userId: string;
@@ -251,6 +252,25 @@ export async function createOrderForUser(
     throw new OrderError("internal", "Gagal melakukan reservasi stok.", 500);
   }
 
+  // 8.5) Reservasi voucher SAAT checkout (bukan saat paid). Ini menutup celah
+  // oversubscribe: dulu kuota baru dipotong saat order paid, sehingga banyak
+  // order pending dengan voucher sama bisa lolos pengecekan kuota. Sekarang
+  // kuota dikunci atomik di sini; dilepas lagi bila order expired/dibatalkan.
+  if (voucherRow && discount > 0) {
+    const res = await reserveVoucherForOrder(env, {
+      voucherId: voucherRow.id,
+      userId,
+      orderId,
+      discountCents: discount,
+      perUserQuota: voucherRow.per_user_quota,
+    });
+    if (!res.ok) {
+      await releaseReservationsForOrder(env.DB, orderId);
+      await env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(orderId).run();
+      throw new OrderError("voucher_not_applicable", res.reason ?? "Voucher tidak bisa dipakai.");
+    }
+  }
+
   // 9) Buat payment record
   const paymentId = nanoId("pay");
   let qrPayload: string | null = null;
@@ -290,6 +310,7 @@ export async function createOrderForUser(
       if (typeof raw.expiresAt === "number") expiresAtProvider = raw.expiresAt;
     } catch (err: any) {
       // Rollback reservasi & order kalau gagal call Pakasir.
+      await releaseVoucherForOrder(env, orderId);
       await releaseReservationsForOrder(env.DB, orderId);
       await env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(orderId).run();
       const code = err?.code === "pakasir_not_configured" ? "pakasir_not_configured" : "payment_provider_failed";
@@ -306,6 +327,7 @@ export async function createOrderForUser(
     const bankAccount = map.get("manual_bank_account");
     const bankHolder = map.get("manual_bank_holder");
     if (!enabled || !bankName || !bankAccount || !bankHolder) {
+      await releaseVoucherForOrder(env, orderId);
       await releaseReservationsForOrder(env.DB, orderId);
       await env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(orderId).run();
       throw new OrderError(
@@ -350,19 +372,43 @@ export async function createOrderForUser(
   // 10) Bersihkan keranjang
   await env.DB.prepare("DELETE FROM cart_items WHERE cart_id = ?").bind(cart.id).run();
 
-  // 11) Audit
-  await audit(env, {
-    actorKind: "user",
-    actorId: userId,
-    action: "order.created",
-    targetKind: "order",
-    targetId: orderId,
-    meta: { code, total, paymentMethod: req.paymentMethod },
-  });
+  // 11) Audit (best-effort). Order + payment sudah final di titik ini; kegagalan
+  // menulis audit (mis. error D1 transien) TIDAK boleh menggagalkan checkout
+  // dan membuat user melihat error padahal ordernya sudah terbentuk.
+  try {
+    await audit(env, {
+      actorKind: "user",
+      actorId: userId,
+      action: "order.created",
+      targetKind: "order",
+      targetId: orderId,
+      meta: { code, total, paymentMethod: req.paymentMethod },
+    });
+  } catch (err) {
+    log.error({
+      event: "order.created.audit_failed",
+      msg: "Gagal menulis audit order.created (diabaikan).",
+      err,
+      meta: { orderId, code },
+    });
+  }
 
   // 12) Kalau wallet, langsung settle
   if (req.paymentMethod === "wallet") {
-    await markOrderPaid(env, orderId, { source: "wallet", note: `Bayar dari saldo (${code})` });
+    try {
+      await markOrderPaid(env, orderId, { source: "wallet", note: `Bayar dari saldo (${code})` });
+    } catch (err) {
+      // markOrderPaid sudah mengembalikan status order ke pending bila debit
+      // gagal. Order wallet settle sinkron — pending wallet tidak bisa dibayar
+      // ulang, jadi bersihkan: lepas reservasi stok lalu hapus order (payments
+      // ikut terhapus via cascade). Lebih baik daripada meninggalkan order
+      // "pending" mati yang menahan stok sampai expiry.
+      await releaseVoucherForOrder(env, orderId);
+      await releaseReservationsForOrder(env.DB, orderId);
+      await env.DB.prepare("DELETE FROM orders WHERE id = ?").bind(orderId).run();
+      if (err instanceof OrderError) throw err;
+      throw new OrderError("wallet_settle_failed", "Gagal menyelesaikan pembayaran saldo.", 500);
+    }
   }
 
   return { orderId, orderCode: code };
@@ -418,12 +464,25 @@ export async function markOrderPaid(
     throw new OrderError("invalid_state", "Order tidak bisa diselesaikan.");
   }
 
-  // Potong saldo jika source=wallet (idempotent karena hanya jalan saat update sukses).
+  // Potong saldo jika source=wallet. CAS di atas (flip ke 'paid') tetap jadi
+  // guard idempoten/serialisasi. Namun bila debit GAGAL (mis. saldo keburu
+  // terkuras oleh order wallet paralel lain milik user yang sama, atau error
+  // transien), kita WAJIB mengembalikan status ke 'pending_payment' supaya
+  // tidak ada order 'paid' tanpa saldo terpotong (barang "gratis").
   if (ctx.source === "wallet") {
-    await debitWallet(env, current.user_id, current.total_cents, {
-      relatedOrderId: orderId,
-      note: ctx.note ?? `Pembayaran order`,
-    });
+    try {
+      await debitWallet(env, current.user_id, current.total_cents, {
+        relatedOrderId: orderId,
+        note: ctx.note ?? `Pembayaran order`,
+      });
+    } catch (err) {
+      await env.DB.prepare(
+        "UPDATE orders SET status='pending_payment', paid_at=NULL, updated_at=? WHERE id=? AND status='paid'",
+      )
+        .bind(now(), orderId)
+        .run();
+      throw err;
+    }
   }
 
   // Commit reservasi stok -> sold + tingkatkan sales_count agregat per produk.
@@ -468,28 +527,12 @@ export async function markOrderPaid(
     });
   }
 
-  // Catat redemption voucher
-  if (current.voucher_id) {
-    const ord = await env.DB.prepare(
-      "SELECT discount_cents FROM orders WHERE id = ?",
-    )
-      .bind(orderId)
-      .first<{ discount_cents: number }>();
-    if (ord && ord.discount_cents > 0) {
-      // OR IGNORE supaya tidak duplikat saat retry
-      await env.DB.prepare(
-        `INSERT OR IGNORE INTO voucher_redemptions (id, voucher_id, user_id, order_id, discount_cents, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(nanoId("vr"), current.voucher_id, current.user_id, orderId, ord.discount_cents, ts)
-        .run();
-      await env.DB.prepare(
-        "UPDATE vouchers SET used_count = used_count + 1, updated_at=? WHERE id=?",
-      )
-        .bind(ts, current.voucher_id)
-        .run();
-    }
-  }
+  // Catat redemption voucher.
+  // CATATAN: redemption & potong kuota TIDAK lagi dilakukan di sini. Sejak
+  // voucher di-reserve saat checkout (lihat reserveVoucherForOrder di
+  // createOrderForUser), baris voucher_redemptions + used_count sudah terkunci
+  // sejak order dibuat dan dilepas otomatis bila order expired/dibatalkan.
+  // Saat order paid, reservasi voucher cukup dibiarkan menjadi permanen.
 
   // Catatan: chat support TIDAK lagi dibuat otomatis saat order paid. Ruang
   // chat hanya dibuat saat user benar-benar membutuhkannya (klik "Ajukan
@@ -531,6 +574,9 @@ export async function expireOrderIfDue(env: AppBindings, orderId: string) {
   const changes = upd.meta?.changes ?? 0;
   if (!changes) return;
   await releaseReservationsForOrder(env.DB, orderId);
+  // Lepas reservasi voucher (kuota & redemption) agar tidak "termakan" oleh
+  // order yang gagal dibayar.
+  await releaseVoucherForOrder(env, orderId);
   await env.DB.prepare(
     "UPDATE payments SET status='expired', updated_at=? WHERE order_id=? AND status='pending'",
   )
@@ -638,4 +684,72 @@ export async function creditWallet(
       ts,
     )
     .run();
+}
+
+/**
+ * Reservasi voucher saat order dibuat (bukan saat paid), supaya kuota tidak
+ * bisa di-oversubscribe oleh banyak order pending dengan voucher sama.
+ *
+ * Strategi atomik:
+ *   1. Potong kuota total via UPDATE bersyarat (`used_count < total_quota`).
+ *      Bila changes=0 → kuota total sudah habis.
+ *   2. Catat redemption (reservasi) ke voucher_redemptions (UNIQUE per order).
+ *   3. Re-count redemption milik user (read-after-write) untuk menutup celah
+ *      dua checkout paralel dari user yang sama: bila melampaui per_user_quota,
+ *      kompensasi (lepas) lalu tolak.
+ *
+ * Reservasi dilepas oleh releaseVoucherForOrder saat order expired/dibatalkan.
+ */
+export async function reserveVoucherForOrder(
+  env: AppBindings,
+  opts: { voucherId: string; userId: string; orderId: string; discountCents: number; perUserQuota: number },
+): Promise<{ ok: boolean; reason?: string }> {
+  const ts = now();
+  const upd = await env.DB.prepare(
+    `UPDATE vouchers SET used_count = used_count + 1, updated_at = ?
+       WHERE id = ? AND (total_quota IS NULL OR used_count < total_quota)`,
+  )
+    .bind(ts, opts.voucherId)
+    .run();
+  // @ts-ignore meta exists
+  if (!(upd.meta?.changes ?? 0)) {
+    return { ok: false, reason: "Kuota voucher sudah habis." };
+  }
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO voucher_redemptions (id, voucher_id, user_id, order_id, discount_cents, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(nanoId("vr"), opts.voucherId, opts.userId, opts.orderId, opts.discountCents, ts)
+    .run();
+  const cnt = await env.DB.prepare(
+    "SELECT COUNT(*) AS c FROM voucher_redemptions WHERE voucher_id = ? AND user_id = ?",
+  )
+    .bind(opts.voucherId, opts.userId)
+    .first<{ c: number }>();
+  if ((cnt?.c ?? 0) > opts.perUserQuota) {
+    // Kompensasi: lepas reservasi yang baru saja dibuat.
+    await releaseVoucherForOrder(env, opts.orderId);
+    return { ok: false, reason: "Kamu sudah mencapai batas pemakaian voucher ini." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Lepas reservasi voucher milik sebuah order: kurangi used_count voucher dan
+ * hapus baris redemption. Idempoten (no-op bila tidak ada redemption).
+ */
+export async function releaseVoucherForOrder(env: AppBindings, orderId: string) {
+  const red = await env.DB.prepare(
+    "SELECT voucher_id FROM voucher_redemptions WHERE order_id = ?",
+  )
+    .bind(orderId)
+    .first<{ voucher_id: string }>();
+  if (!red) return;
+  const ts = now();
+  await env.DB.prepare(
+    "UPDATE vouchers SET used_count = MAX(0, used_count - 1), updated_at = ? WHERE id = ?",
+  )
+    .bind(ts, red.voucher_id)
+    .run();
+  await env.DB.prepare("DELETE FROM voucher_redemptions WHERE order_id = ?").bind(orderId).run();
 }
